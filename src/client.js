@@ -301,7 +301,7 @@ window.__ModuleLoader__.load({
 .dbg-historyHead{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px;font-size:14px;font-weight:500}
 .dbg-historyTools{display:flex;gap:8px;margin-bottom:12px}
 .dbg-search,.dbg-filter{box-sizing:border-box;min-width:0;height:32px;padding:0 10px;border:.5px solid var(--dsw-alias-border-l3);border-radius:6px;color:inherit;background:var(--dsw-alias-bg-layer-1);font:inherit}
-.dbg-search{flex:1;width:100%}
+.dbg-search{flex:1;width:100%}.dbg-filter{appearance:none;-webkit-appearance:none;padding-right:26px;background-image:url('data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 12 12%22 fill=%22none%22%3E%3Cpath d=%22m3 4.5 3 3 3-3%22 stroke=%22%23888b90%22 stroke-width=%221.4%22 stroke-linecap=%22round%22 stroke-linejoin=%22round%22/%3E%3C/svg%3E');background-repeat:no-repeat;background-position:right 8px center;background-size:10px}
 .dbg-search:hover,.dbg-filter:hover,.dbg-editInput:hover{border-color:var(--dsw-alias-border-l3)}
 .dbg-historyList{list-style:none;padding:0;margin:0;max-height:320px;overflow:auto;scrollbar-width:thin;scrollbar-gutter:stable}
 .dbg-historyList>li{content-visibility:auto;contain-intrinsic-size:auto 60px}
@@ -325,9 +325,9 @@ window.__ModuleLoader__.load({
 .dbg-note{margin:0;padding:10px 12px;border:.5px solid var(--dsw-alias-border-l2);border-radius:6px;font-size:12px;line-height:18px;background:var(--dsw-alias-bg-layer-2);color:var(--dsw-alias-label-secondary)}
 .dbg-note[data-tone=error],.dbg-status[data-tone=error]{color:var(--dsw-alias-state-error-primary)}
 .dbg-note[data-tone=warn]{border-left:2px solid var(--dsw-alias-state-warn-primary)}
-.dbg-section{display:flex;flex-direction:column;gap:16px;border:0;border-top:1px solid var(--dsw-alias-border-l2);padding:24px 0 0;margin:0;min-width:0}
+.dbg-section{display:flex;flex-direction:column;gap:16px;border:1px solid var(--dsw-alias-border-l2);border-radius:12px;background:var(--dsw-alias-bg-layer-2);padding:16px;margin:0;min-width:0}
 .dbg-sectionHead{display:flex;align-items:center;justify-content:space-between;gap:12px}
-.dbg-title{margin:0;font-size:18px;font-weight:500;line-height:26px}
+.dbg-title{margin:0;font-size:20px;font-weight:600;line-height:28px;letter-spacing:-.01em}.dbg-srOnly{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}
 .dbg-sectionTitle{margin:0;font-size:14px;font-weight:500;line-height:20px}
 .dbg-section legend{float:left;width:100%;padding:0;margin:0}
 .dbg-hint{margin:0;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary)}
@@ -340,7 +340,7 @@ window.__ModuleLoader__.load({
 .dbg-cfg :is(input,button,summary):focus{outline:none}
 .dbg-cfg :is(input,button,summary):focus-visible{outline:2px solid var(--cfg-accent);outline-offset:2px}
 .dbg-cfg :disabled{opacity:.4;cursor:not-allowed}
-.dbg-input[aria-invalid=true]{border-color:var(--dsw-alias-state-error-primary)}
+.dbg-input[aria-invalid=true]{border-color:var(--dsw-alias-state-error-primary)}.dbg-cfg input[type=number]{appearance:textfield;-moz-appearance:textfield}.dbg-cfg input[type=number]::-webkit-outer-spin-button,.dbg-cfg input[type=number]::-webkit-inner-spin-button{appearance:none;margin:0}
 .dbg-implementationChoices{display:inline-flex;align-self:flex-start;max-width:100%;gap:2px;padding:2px;border-radius:10px;background:var(--dsw-alias-bg-layer-2)}
 .dbg-choice{position:relative;min-width:0;cursor:pointer;display:block;flex:1}
 .dbg-choiceInput{position:absolute;width:1px;height:1px;opacity:0;margin:0}
@@ -361,7 +361,7 @@ window.__ModuleLoader__.load({
 .dbg-segment{position:relative;flex:1;min-width:0;cursor:pointer;text-align:center}
 .dbg-segmentInput{position:absolute;opacity:0;width:1px;height:1px;margin:0}
 .dbg-segment>span{display:flex;align-items:center;justify-content:center;padding:0 12px;min-height:28px;border-radius:8px;font-size:13px;white-space:nowrap;color:var(--dsw-alias-label-secondary);transition:background-color 100ms ease}
-.dbg-segmentInput:checked+span{background:var(--dsw-alias-bg-layer-1);color:var(--dsw-alias-label-primary);font-weight:500;box-shadow:inset 0 0 0 .5px var(--dsw-alias-border-l3)}
+.dbg-segmentInput:checked+span{background:var(--dsw-alias-bg-layer-1);color:var(--cfg-selected);font-weight:500;outline:.5px solid var(--dsw-alias-border-l3);outline-offset:-.5px}
 .dbg-segment:hover .dbg-segmentInput:not(:disabled)+span{background:var(--dsw-alias-interactive-bg-hover)}
 .dbg-segment:active .dbg-segmentInput:not(:disabled)+span{background:var(--dsw-alias-interactive-bg-active,var(--dsw-alias-interactive-bg-hover))}
 .dbg-footer{display:flex;align-items:center;gap:8px;padding:16px 0;border-top:1px solid var(--dsw-alias-border-l2);flex-wrap:wrap;position:sticky;bottom:0;background:var(--dsw-alias-bg-layer-1)}
@@ -374,7 +374,7 @@ window.__ModuleLoader__.load({
 .dbg-button:active:not(:disabled){filter:brightness(.94)}
 .dbg-status{flex:1;min-width:120px;font-size:12px;line-height:20px;color:var(--dsw-alias-label-tertiary)}
 .dbg-status[data-tone=ok]{color:var(--dsw-alias-state-success-primary)}
-.dbg-help{font-size:12px;color:var(--dsw-alias-label-tertiary)}
+.dbg-help{font-size:12px;color:var(--dsw-alias-label-tertiary)}.dbg-roundPolicy{display:flex;align-items:center;gap:8px;min-height:24px;color:var(--dsw-alias-label-tertiary);font-size:11px;font-variant-numeric:tabular-nums}.dbg-roundStart,.dbg-roundCap{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:20px;padding:0 7px;border:1px solid color-mix(in srgb,var(--cfg-accent) 40%,var(--dsw-alias-border-l2));border-radius:4px;background:var(--dsw-alias-bg-layer-1);color:var(--cfg-selected);font-family:var(--dsw-font-family-mono,monospace)}.dbg-roundCap{color:var(--cfg-selected);border-color:color-mix(in srgb,var(--cfg-accent) 40%,var(--dsw-alias-border-l2))}.dbg-roundPolicy[data-mode=agent] .dbg-roundCap{color:var(--dsw-alias-label-secondary);border-color:var(--dsw-alias-border-l2)}.dbg-roundPolicy[data-mode=unlimited] .dbg-roundCap{color:var(--dsw-alias-label-primary)}.dbg-roundRail{position:relative;flex:1;height:1px;background:var(--dsw-alias-border-l3)}.dbg-roundRail:after{content:'';position:absolute;right:0;top:-3px;width:6px;height:6px;border-top:1px solid var(--dsw-alias-border-l4);border-right:1px solid var(--dsw-alias-border-l4);transform:rotate(45deg)}.dbg-roundPolicy[data-mode=unlimited] .dbg-roundRail{background:linear-gradient(to right,var(--cfg-accent),var(--dsw-alias-border-l3))}
 .dbg-help>summary{cursor:pointer;width:fit-content;padding:4px 0;list-style-position:inside}
 .dbg-help>p{margin:8px 0;max-width:64ch}
 @container better-goal-settings (max-width:540px){.dbg-field{grid-template-columns:minmax(0,1fr);gap:4px}.dbg-fieldHeading{padding-top:0}.dbg-status{flex-basis:100%;margin:4px 0 0}.dbg-runtimePending{padding-left:0;border:0;flex-basis:100%}.dbg-help>summary{min-height:32px;display:flex;align-items:center}.dbg-segment>span{padding:0 8px;white-space:normal}}
@@ -1152,7 +1152,7 @@ window.__ModuleLoader__.load({
                 onChange: () => edit((current) => ({ ...current, implementation: value })) }),
               h('span', { className: 'dbg-choiceFace' },
                 h('span', { className: 'dbg-choiceHeading' }, tr(t, value === 'enhanced' ? 'runtimeBetter' : 'runtimeNative')))))),
-          h('p', { className: 'dbg-hint', id: 'dsh-better-goal-implementation-hint' }, tr(t, live.implementation === 'enhanced' ? 'enhancedDescription' : 'nativeDescription')),
+          h('p', { className: 'dbg-hint dbg-srOnly', id: 'dsh-better-goal-implementation-hint' }, tr(t, live.implementation === 'enhanced' ? 'enhancedDescription' : 'nativeDescription')),
           h('div', { className: 'dbg-runtime', role: 'status' },
             runtime?.runtime ? h('span', { className: 'dbg-runtimeCurrent' }, tr(t, 'runtimeActive', { implementation: tr(t, runtime.runtime.implementation === 'native' ? 'runtimeNative' : 'runtimeBetter') }))
               : h('span', null, tr(t, runtime === undefined ? 'runtimeLoading' : 'runtimeUnavailable')),
@@ -1176,7 +1176,11 @@ window.__ModuleLoader__.load({
                   checked: live.roundLimitMode === value, disabled: roundsDisabled,
                   onChange: () => edit((current) => ({ ...current, roundLimitMode: value })) }),
                 h('span', null, tr(t, value === 'agent' ? 'modeAgent' : value === 'unlimited' ? 'modeUnlimited' : 'modeFixed'))))),
-            h('p', { className: 'dbg-hint', id: 'dsh-better-goal-mode-hint' }, tr(t, live.roundLimitMode === 'agent' ? 'modeAgentHint' : live.roundLimitMode === 'unlimited' ? 'modeUnlimitedHint' : 'modeFixedHint'))),
+            h('p', { className: 'dbg-hint dbg-srOnly', id: 'dsh-better-goal-mode-hint' }, tr(t, live.roundLimitMode === 'agent' ? 'modeAgentHint' : live.roundLimitMode === 'unlimited' ? 'modeUnlimitedHint' : 'modeFixedHint'))),
+            h('div', { className: 'dbg-roundPolicy', 'data-mode': live.roundLimitMode, 'aria-hidden': 'true' },
+              h('span', { className: 'dbg-roundStart' }, '1'),
+              h('span', { className: 'dbg-roundRail' }),
+              h('span', { className: 'dbg-roundCap', title: tr(t, live.roundLimitMode === 'agent' ? 'modeAgent' : live.roundLimitMode === 'unlimited' ? 'modeUnlimited' : 'roundLimitLabel') }, live.roundLimitMode === 'fixed' ? (roundLimitValue === undefined ? '—' : String(roundLimitValue)) : live.roundLimitMode === 'unlimited' ? '∞' : 'Agent')),
           live.roundLimitMode === 'fixed'
             ? h(Field, { t, id: 'dsh-better-goal-round-limit', label: tr(t, 'roundLimitLabel'), hint: roundLimitValue === UNLIMITED_ROUNDS ? tr(t, 'roundLimitUnlimited') : tr(t, 'roundLimitHint') },
               h('input', { className: 'dbg-input', id: 'dsh-better-goal-round-limit', type: 'number', min: 1, max: UNLIMITED_ROUNDS, step: 1, inputMode: 'numeric', value: live.roundLimit, disabled: roundsDisabled,
