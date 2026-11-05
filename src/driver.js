@@ -321,6 +321,11 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 						return;
 					}
 					if (event.data.reason.kind !== "aborted") return;
+                    if (event.data.reason.reason.kind === "disposed") {
+                        state.interrupted = undefined;
+                        disarm(state);
+                        return;
+                    }
                     { const goal = currentGoal(state); if (drivable(goal)) state.interrupted = goalRef(goal); }
                     if (state.attempt?.phase === "claimed" || state.attempt?.phase === "admitted") state.attempt.cancelled = true;
                     disarm(state);

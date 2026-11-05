@@ -4,13 +4,13 @@
 
 <p><strong>让目标持续推进，也能在必须人介入时明确停下。</strong></p>
 
-<p>替换 DSH 原生 goal：保留持久目标与自动续跑，补上即时失败停止、可控的提问等待和更简单的目标操作。步骤仍然交给 <code>todo_write</code>。</p>
+<p>替换 DSH 原生 goal：保留持久目标与自动续跑，补上即时失败停止和更简单的目标操作；提问等待由独立的 ask-user 插件负责。步骤仍然交给 <code>todo_write</code>。</p>
 
 <p>
   <a href="https://www.npmjs.com/package/dsh-better-goal"><img src="https://img.shields.io/npm/v/dsh-better-goal.svg" alt="npm 版本"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="许可证：Apache-2.0"></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/DSH-0.2.1--rc.2_%3C0.3.0-6f42c1.svg" alt="DSH 0.2.1-rc.2 至 0.3.0 之前"></a>
-  <a href="package.json"><img src="https://img.shields.io/badge/node-%5E22.19_%7C%7C_%3E%3D24-339933.svg" alt="Node.js ^22.19.0 或 >=24.0.0"></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/DSH-0.2.2--rc.1-6f42c1.svg" alt="仅支持 DSH 0.2.2-rc.1"></a>
+  <a href="package.json"><img src="https://img.shields.io/badge/node-%3E%3D24.9.0-339933.svg" alt="Node.js >=24.9.0"></a>
 </p>
 
 </div>
@@ -19,9 +19,9 @@
 
 ## 与 DSH 原生 goal 对比
 
-**自动续跑不应该变成“明知做不了，还继续跑”。** 原生 goal 已经提供持久目标与自动续跑；better-goal 改进的是遇到阻塞时及时停下、可控的提问等待，以及更简单的目标操作。
+**自动续跑不应该变成“明知做不了，还继续跑”。** 原生 goal 已经提供持久目标与自动续跑；better-goal 改进的是遇到阻塞时及时停下，以及更简单的目标操作；提问等待由独立插件管理。
 
-> 对比以 DSH `0.2.1-rc.2` 的默认行为为基准。原生也支持完成、用户暂停和清除，并非完全不能停止；关键差异是**自主续跑中的模型能否在需要人介入时立即暂停**。
+> 对比以 DSH `0.2.2-rc.1` 的默认行为为基准。原生也支持完成、用户暂停和清除，并非完全不能停止；关键差异是**自主续跑中的模型能否在需要人介入时立即暂停**。
 
 | 场景 | DSH 原生 goal | dsh-better-goal |
 | --- | --- | --- |
@@ -60,14 +60,14 @@ flowchart TD
 
 ## 安装：只选一个入口
 
-需要 [DSH](https://github.com/deepseek-ai/deepseek-harness) `>=0.2.1-rc.2 <0.3.0` 和 Node.js `^22.19.0 || >=24.0.0`。无构建步骤。
+需要 [DSH](https://github.com/deepseek-ai/deepseek-harness) `0.2.2-rc.1` 和 Node.js `>=24.9.0`。`0.4.0` 仅面向这个 DSH 版本，无构建步骤；发布版本可在对应 GitHub Release 与 npm registry 核对。安装前请先升级目标 profile 的宿主。
 
 ### 通过 Apollo 安装（推荐）
 
 [Apollo](https://github.com/Menghuan1918/dsh-apollo)（[npm 包](https://www.npmjs.com/package/@menghuan1918/dsh-apollo)）是包含流程技能、工程模式和本插件的集合，goal 是其中一个独立子插件。从 npm 安装 Apollo 会自动带入 `dsh-better-goal`，**不需要再安装一次**：
 
 ```sh
-dsh plugin --profile <profile> add @menghuan1918/dsh-apollo@0.4.1
+dsh plugin --profile <profile> add @menghuan1918/dsh-apollo@0.9.0
 ```
 
 安装后，目标设置出现在 **Plugins → @menghuan1918/dsh-apollo → dsh-better-goal 行**。只保留 Apollo 入口即可。
@@ -80,10 +80,10 @@ dsh plugin --profile <profile> add @menghuan1918/dsh-apollo@0.4.1
 
 ```sh
 # npm 安装（推荐）
-dsh plugin --profile <profile> add dsh-better-goal@0.2.0
+dsh plugin --profile <profile> add dsh-better-goal@0.4.0
 
-# 或从 GitHub main 源码安装（次入口）
-dsh plugin --profile <profile> add github:Menghuan1918/dsh-better-goal
+# 或从对应 GitHub tag 源码安装（次入口）
+dsh plugin --profile <profile> add github:Menghuan1918/dsh-better-goal#v0.4.0
 ```
 
 完成后，目标设置出现在 **Plugins → dsh-better-goal → dsh-better-goal 行**。npm 包页面：[dsh-better-goal](https://www.npmjs.com/package/dsh-better-goal)。

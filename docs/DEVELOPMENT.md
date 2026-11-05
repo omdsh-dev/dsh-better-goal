@@ -4,11 +4,10 @@
 
 ## 状态与兼容性
 
-- 当前包版本：`0.2.0`。
-- DSH 基准：`0.2.1-rc.2`；`package.json` 的 engines 声明为 `>=0.2.1-rc.2 <0.3.0`。
-- Node.js：`^22.19.0 || >=24.0.0`。
+- 当前源码版本：`0.4.0`（此迁移不发布 npm）。
+- 仅支持 DSH `0.2.2-rc.1`；`package.json` 的 engines 与 DSH peers 均精确限定此版本，不承诺其他 RC 或旧版本。
+- Node.js：`>=24.9.0`；Cordis `~4.1.0`、Schemastery `~3.19.0`。
 - 纯 ESM，无构建步骤，没有需要生成的资源文件。
-- 版本范围会纳入预发布版；`0.2.1-rc.2` 之后的 RC 可能被接受，但版本范围不等于逐版验证保证。
 
 本仓库的测试和冒烟不包含“当前正在使用的浏览器 GUI 已完成验收”，也没有对 PTC 工具呈现模式或其他自定义提问工具做专项验证。不要把这些未覆盖场景写成已验证。
 
@@ -26,7 +25,7 @@
 1. 禁用原生 `goal`、`goal-round-driver`、`command-goal`、`tool-goal`、`ui-goal` 行。
 2. 插入顶层行 `id: dsh-better-goal`、`name: dsh-better-goal`。
 
-插件不会修改 DSH 安装目录，也不依赖实验性的 plugin records。`implementation: 'enhanced'`（默认）时，[src/index.js](../src/index.js) 对旧 Agent 上仍可见的 `get_goal` / `create_goal` / `update_goal` 在 Agent 的 tools 作用域内做 deny 过滤，并在每个 pre-step 重新检查，避免预设换代后残留旧工具。`implementation: 'native'` 时不做该过滤，由本行通过宿主 Loader 加载原生服务、round driver、命令和工具，旧三工具就是当前实现本身。
+插件不会修改 DSH 安装目录，也不依赖实验性的 plugin records。`implementation: 'enhanced'`（默认）时，[src/index.js](../src/index.js) 对旧 Agent 上仍可见的 `get_goal` / `create_goal` / `update_goal` 在 Agent 的 tools 作用域内做 deny 过滤，并在本行 volatile 配置提交时重新检查。热 schema 刷新发生在下一次 tools step admission 之前，不再修改 `system-prompt/assemble` 的 presentation；next 的工具声明由 provider 持有。`implementation: 'native'` 时不做该过滤，由本行通过宿主 Loader 加载原生服务、round driver、命令和工具，旧三工具就是当前实现本身。
 
 ## 后端选择与运行状态
 
@@ -74,6 +73,7 @@
 
 ## 数据、兼容与恢复
 
+- goal service 在 `Service.init` 等待 projection 注册并保留 handle；历史 projection 也等待注册完成。运行时通过 handle 读取，不使用弃用的按 key 查询。`turn/end` 的 disposed 中止仅 disarm，不写入用户暂停。
 - 持久格式沿用 DSH 原生 `goal/change` v1 事件；projection 保持 `stateVersion: 6`。没有独立 sidecar 状态，也不使用日志截断式 rewind。
 - 写入通过 revision-based CAS 校验；旧 revision 的编辑、暂停、恢复等操作会被拒绝，不会覆盖新状态。
 - 会话重开、宿主重启或 fork 时，从会话日志前缀恢复 goal 和 `roundsStarted`；activation 是 process-local 状态，恢复后为 `disarmed`，必须显式 `resume` 才会重新排队自动轮次。`disarm` 不写持久 revision。
@@ -87,13 +87,13 @@
 
 ## 原生 Goal 对比的核验边界
 
-用户 README 的对比以本项目验证基线 DSH `0.2.1-rc.2` 的默认装配为准，核对了该版本的 `dsh-tool-goal`、`dsh-goal-round-driver`、`dsh-goal`、`dsh-tool-ask-user` 发布代码及 standard 预设。公开规则见[原生 Goal 工具说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/goal/tool-goal/README.md)；该链接跟随上游演进，不代替已验证版本。
+用户 README 的对比以本项目验证基线 DSH `0.2.2-rc.1` 的默认装配为准，核对了该版本的 `dsh-tool-goal`、`dsh-goal-round-driver`、`dsh-goal`、`dsh-tool-ask-user` 发布代码及 standard 预设。公开规则见[原生 Goal 工具说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/goal/tool-goal/README.md)；该链接跟随上游演进，不代替已验证版本。
 
 - 原生并非没有停止路径：模型可 `complete` 或在满足门槛后 `blocked`，用户还可暂停、清除；不能把它描述成绝对无法终止或必然无限运行。
 - 原生自主目标轮次不具备 direct-human authority，不能主动 `pause`；`blocked` 默认在 `roundsStarted < 3` 时被拒绝。文档要求同一阻塞持续多个轮次，代码门槛实际比较累计目标轮数，不证明每轮都是同一阻塞。README 因此只说“默认至少经过 3 个目标轮次”。
 - 原生模型的 `resume` 需要直接人类请求，且拒绝恢复 durable paused 状态；该状态由用户 Web 或 `/goal resume` 路径恢复。本插件不保留这些人类授权门槛，但保留目标状态与预算校验。
 - 原生默认轮数上限是 256，达到有效上限后 driver 会记录 `round-limit` 并停续；可配置的轮数上限不是固定值，也不是提问等待的时间上限。
-- 原生 `ask_user_question` 默认是阻塞式 legacy 模式；timed 是同一工具已有的可选模式，默认 120 秒且支持 `-1`。本插件并不独占 pending / late-answer 能力，而是在 active + armed 目标中统一应用用户配置的等待策略。
+- 原生 `ask_user_question` 默认是阻塞式 legacy 模式；timed 是同一工具已有的可选模式，默认 120 秒且支持 `-1`。本插件不持有提问等待策略；pending / late-answer 由原生 timed 工具或独立 dsh-better-ask-user 负责，旧 goal 的 `questionTimeoutSeconds` 不影响它们。
 - 目标持久化、自动续跑、用户暂停、重开或 fork 后 disarm 都是原生已有能力，不应写成本插件相对原生的独有优势。
 
 ## 单工具与动作契约
@@ -176,10 +176,10 @@ volatile schema 让全部字段可写并可热投递到活 fiber，但 `implemen
 
 这是 README 只保留一句提示、本文档保留完整原理的部分。
 
-Apollo 在 `package.json` 中把 `dsh-better-goal` 声明为精确 npm 依赖 `0.2.0`（不是 Git commit、分支、范围或 `file:` 说明符）；它的顶层 patch 自己插入了 `id/name` 都是 `dsh-better-goal` 的行。独立包也插入同一行。
+Apollo 在 `package.json` 中把 `dsh-better-goal` 声明为精确 npm 依赖 `0.4.0`（不是 Git commit、分支、范围或 `file:` 说明符）；它的顶层 patch 自己插入了 `id/name` 都是 `dsh-better-goal` 的行。独立包也插入同一行。
 
 - 两个 bundle 同时被显式选中时，DSH Loader 按行 id 去重，通常只激活一个实例，浏览器模块也只有一个 active source。
-- 但 DSH `0.2.1-rc.2` 的插件管理器会把组合行开关标成只读（`unaddressable`），配置编辑器也可能拒绝保存目标设置。
+- 但 DSH `0.2.2-rc.1` 的插件管理器会把组合行开关标成只读（`unaddressable`），配置编辑器也可能拒绝保存目标设置。
 - 这不是两个服务同时运行，也不是通过修改 DSH 核心可以安全绕过的行为；推荐只保留 Apollo 入口，不重复 add。
 - [src/client.js](../src/client.js) 注册三个 row-config key：`dsh-better-goal#dsh-better-goal`（独立安装）、`@menghuan1918/dsh-apollo#dsh-better-goal`（scoped Apollo）和 `dsh-apollo#dsh-better-goal`（历史 Apollo）。三者指向同一个设置页、同一份配置和同一个行 id。
 - Apollo 自身的 `apollo-skills` 行用 `@menghuan1918/dsh-apollo#apollo-skills`，并保留 `dsh-apollo#apollo-skills` 旧键；两键同样指向同一行配置。行 id、预设 ID 和 CLI 路由不随包名改名。
@@ -242,9 +242,9 @@ GOAL_SMOKE_MODE=both DSH_PACKAGE_ROOT=/path/to/node_modules/@deepseek-ai/dsh npm
 GOAL_SMOKE_MODE=both GOAL_SMOKE_IMPLEMENTATION=native DSH_PACKAGE_ROOT=/path/to/node_modules/@deepseek-ai/dsh npm run smoke
 ```
 
-冒烟使用临时 home/profile、真实 DSH AgentLoop 和脚本化模型适配器，不调用付费模型，也不启动替代 GUI。通过条件是进程退出码为 0、输出 `BETTER_GOAL_RUNTIME_SMOKE_PASSED`（enhanced）或 `BETTER_GOAL_NATIVE_SMOKE_PASSED`（native），以及临时目录 `results.json` 的 `passed` 为 `true`。`apollo` / `both` 模式默认从 `../dsh-apollo` 读取 Apollo 仓库，可用 `APOLLO_PACKAGE_ROOT` 指定其他位置。
+冒烟使用临时 home/profile、真实 DSH AgentLoop 和脚本化模型适配器，不调用付费模型，也不启动替代 GUI。通过条件是进程退出码为 0、输出 `BETTER_GOAL_RUNTIME_SMOKE_PASSED`（enhanced）或 `BETTER_GOAL_NATIVE_SMOKE_PASSED`（native），以及临时目录 `results.json` 的 `passed` 为 `true`。`apollo` / `both` 模式默认从 `../dsh-apollo` 读取 Apollo 仓库，可用 `APOLLO_PLUGIN_SOURCE_ROOT` 指定包含各 sibling 的目录（其下 `dsh-apollo/` 为 Apollo），或用 `APOLLO_PACKAGE_ROOT` 直接指定 Apollo 包目录。冒烟把 shipped files 复制进临时 profile，不携带各源码包自己的 `node_modules`；显式以临时 manifest 为 installAnchor，避免解析到宿主祖先的旧插件。
 
-实际检查分实现分支。`enhanced`（默认）：真实 profile 启动、单 `goal` 工具、五动作枚举、无 `goal_id` / `revision` 参数、旧三工具隐藏、`/goal` 命令、创建/替换/暂停/恢复/完成/清除、真实工具 dispatch、native goal RPC、自动轮次、冷恢复 disarmed、fork disarmed、Agent 无需新人类消息即可控制完整生命周期。`native`：上游 `dsh-goal` 服务归本行所有、`get_goal`/`create_goal`/`update_goal` 为当前工具、原生默认轮数上限生效、`/goal` 命令可暂停/编辑、真实工具 dispatch、`implementation` 保存写入但运行中不换装配。`GOAL_SMOKE_HOT=1` 还检查热设置持久化和迟到回答。冒烟路径覆盖 `standard`（standalone）以及 `eng` / `eng-ptc`（apollo / both）；`apollo` / `both` 模式会检查 `eng-ptc` 同样只有一个 `goal` 工具（或 native 模式下为原生三工具）、实现不重挂。`both` 模式下目标行被宿主标只读，冒烟改为断言设置写入被正确拒绝。
+实际检查分实现分支。`enhanced`（默认）：真实 profile 启动、单 `goal` 工具、五动作枚举、无 `goal_id` / `revision` 参数、旧三工具隐藏、`/goal` 命令、创建/替换/暂停/恢复/完成/清除、真实工具 dispatch、native goal RPC、自动轮次、冷恢复 disarmed、fork disarmed、Agent 无需新人类消息即可控制完整生命周期。`native`：上游 `dsh-goal` 服务归本行所有、`get_goal`/`create_goal`/`update_goal` 为当前工具、原生默认轮数上限生效、`/goal` 命令可暂停/编辑、真实工具 dispatch、`implementation` 保存写入但运行中不换装配。`GOAL_SMOKE_HOT=1` 还检查热设置持久化、首个新 request 的 goal schema、提问 owner 不被 goal 设置替换，以及独立提问 owner 的 pending / 迟到回答。standalone 显式启用原生 timed 工具，Apollo 则配置独立 ask-user；不会断言旧 goal 超时字段拥有提问等待。冒烟路径覆盖 `standard`（standalone）以及 `eng` / `eng-ptc`（apollo / both）；`apollo` / `both` 模式会检查 `eng-ptc` 同样只有一个 `goal` 工具（或 native 模式下为原生三工具）、实现不重挂。`both` 模式下目标行被宿主标只读，冒烟改为断言设置写入被正确拒绝。
 
 未覆盖：PTC 模式下 `run_code` 内调用 goal 的真实回合、其他自定义提问工具、当前浏览器 GUI 的人工验收。单元测试或冒烟通过都不代表这些场景已验证。
 

@@ -255,6 +255,17 @@ const allText = (node) => {
 }
 const pageText = (renderer) => allText(renderer.toJSON())
 
+function selectedChoice(renderer, name) {
+  return renderer.root.find((node) => isHost(node) && node.type === 'input' && node.props.name === name && node.props.checked).props.value
+}
+
+async function chooseOption(renderer, trigger, label) {
+  await act(async () => { trigger.props.onClick() })
+  const option = renderer.root.findAll((node) => isHost(node) && node.props.role === 'option' && allText(node) === label)[0]
+  assert.ok(option, 'option is available: ' + label)
+  await act(async () => { option.props.onClick() })
+}
+
 // ── closure wiring ─────────────────────────────────────────────────────────
 
 test('closure id, injected services, dictionaries, and every slot registration', () => {
@@ -482,7 +493,9 @@ test('successful clear hides the strip immediately while the projection catches 
   const bar = await mountGoalBar({
     projection: { goal: activeGoal, roundsStarted: 2 },
   })
-  await act(async () => { await byLabel(bar.renderer, 'action.clear').props.onClick() })
+  await act(async () => { byLabel(bar.renderer, 'action.clear').props.onClick() })
+  assert.equal(bar.setup.goalCalls.length, 0, 'the first click only arms clearing')
+  await act(async () => { byLabel(bar.renderer, 'action.confirmClear').props.onClick(); await Promise.resolve() })
   assert.equal(bar.setup.goalCalls.length, 1)
   assert.equal(bar.setup.goalCalls[0].method, 'clear')
   assert.deepEqual(bar.setup.goalCalls[0].ref, { id: 'goal-1', revision: 4 })
@@ -497,7 +510,9 @@ test('remote error and local missing-goal failure render inline without a mutati
       clear: async () => ({ ok: false, error: { code: 'GOAL_STALE_REF', message: 'stale revision' } }),
     },
   })
-  await act(async () => { await byLabel(bar.renderer, 'action.clear').props.onClick() })
+  await act(async () => { byLabel(bar.renderer, 'action.clear').props.onClick() })
+  assert.equal(bar.setup.goalCalls.length, 0, 'the first click only arms clearing')
+  await act(async () => { byLabel(bar.renderer, 'action.confirmClear').props.onClick(); await Promise.resolve() })
   assert.match(pageText(bar.renderer), /stale revision \(GOAL_STALE_REF\)/)
   assert.match(pageText(bar.renderer), /phase\.active/)
   assert.equal(bar.setup.commandCalls.length, 0)
@@ -586,10 +601,6 @@ async function mountConfigEntry(record, controller) {
   }
 }
 
-function selectedChoice(renderer, name) {
-  return renderer.root.find((node) => isHost(node) && node.type === 'input' && node.props.name === name && node.props.checked).props.value
-}
-
 test('three exact row-config keys are unique and each dispatches one shared entry', () => {
   const setup = install()
   setup.declare('plugins.row.config')
@@ -625,9 +636,7 @@ test('standalone, legacy Apollo, and scoped Apollo keys dispatch the same page o
 
   // A save through the scoped Apollo key writes the shared form exactly once.
   const scoped = pages.get(SCOPED_APOLLO_ROW_CONFIG_KEY)
-  await act(async () => {
-    byId(scoped.renderer, 'dsh-better-goal-round-limit-mode-fixed').props.onChange()
-  })
+  await act(async () => { byId(scoped.renderer, 'dsh-better-goal-round-limit-mode-fixed').props.onChange() })
   await act(async () => {
     byId(scoped.renderer, 'dsh-better-goal-round-limit').props.onChange({ target: { value: '512' } })
   })
@@ -663,8 +672,7 @@ test('settings page exposes defaults, fixed mode input, validation, and atomic s
   const page = await mountSettings({
     value: { roundLimitMode: 'agent', roundLimit: 256, questionTimeoutSeconds: 120 },
   })
-  // 单一标题，无开场说明。
-  assert.equal(page.renderer.root.findAll((node) => isHost(node) && node.type === 'h3' && node.props?.className === 'dbg-title').length, 1)
+  assert.equal(page.renderer.root.findAll((node) => isHost(node) && node.type === 'h3' && node.props.className === 'dbg-title').length, 1)
   assert.match(pageText(page.renderer), /settingsTitle/)
   assert.doesNotMatch(pageText(page.renderer), /settingsIntro/)
   assert.equal(selectedChoice(page.renderer, 'dsh-better-goal-round-limit-mode'), 'agent')
@@ -673,11 +681,9 @@ test('settings page exposes defaults, fixed mode input, validation, and atomic s
     page.renderer.root.findAll((node) => isHost(node) && node.type === 'style' && node.props?.['data-plugin-css'] === 'dsh-better-goal/settings.css').length,
     1,
   )
-  assert.equal(primaryButton(page.renderer).props.disabled, true)
+  assert.equal(primaryButton(page.renderer), undefined, 'unchanged settings have no save bar')
 
-  await act(async () => {
-    byId(page.renderer, 'dsh-better-goal-round-limit-mode-fixed').props.onChange()
-  })
+  await act(async () => { byId(page.renderer, 'dsh-better-goal-round-limit-mode-fixed').props.onChange() })
   const limit = byId(page.renderer, 'dsh-better-goal-round-limit')
   assert.equal(limit.props.value, '256')
 
@@ -774,6 +780,10 @@ test('settings summary view and unavailable/read-only states', async () => {
   const page = await mountSettings({ controller: unavailable })
   assert.match(pageText(page.renderer), /unavailable/)
   assert.equal(primaryButton(page.renderer), undefined)
+  const readonlyPage = await mountSettings({ writable: false })
+  assert.match(pageText(readonlyPage.renderer), /readonly/)
+  assert.ok(readonlyPage.renderer.root.findAll((node) => isHost(node) && node.type === 'input').every((node) => node.props.disabled))
+  assert.equal(primaryButton(readonlyPage.renderer), undefined)
 })
 
 test('exported form helpers normalize defaults and validate drafts strictly', () => {
@@ -782,14 +792,16 @@ test('exported form helpers normalize defaults and validate drafts strictly', ()
   assert.deepEqual(shapeConfig(undefined), roundDefaults)
   assert.deepEqual(shapeConfig({ roundLimitMode: 'nope', roundLimit: 0, questionTimeoutSeconds: 0 }), roundDefaults)
   assert.deepEqual(shapeConfig({ roundLimitMode: 'fixed', roundLimit: UNLIMITED, questionTimeoutSeconds: -1 }), {
-    ...roundDefaults,
+    implementation: 'enhanced',
+    nativeDefaultMaxGoalRounds: 256,
+    nativeBlockedAfterConsecutiveRounds: 3,
     roundLimitMode: 'fixed',
     roundLimit: UNLIMITED,
   })
-  assert.deepEqual(parseDraft({ ...roundDefaults, roundLimitMode: 'fixed', roundLimit: '1.5' }, roundDefaults), {
+  assert.deepEqual(parseDraft({ implementation: 'enhanced', roundLimitMode: 'fixed', roundLimit: '1.5', questionTimeoutSeconds: '120' }, roundDefaults), {
     error: 'invalidRoundLimit',
   })
-  assert.deepEqual(parseDraft({ ...roundDefaults, roundLimit: 'ignored' }, roundDefaults), {
+  assert.deepEqual(parseDraft({ implementation: 'enhanced', roundLimitMode: 'agent', roundLimit: 'ignored', questionTimeoutSeconds: '-1' }, roundDefaults), {
     value: roundDefaults,
   })
   assert.deepEqual(diffOps(
@@ -816,12 +828,11 @@ test('implementation choice saves only ownership, keeps legacy config, and hides
   await act(async () => { byId(page.renderer, 'dsh-better-goal-implementation-native').props.onChange() })
   await act(async () => { byId(page.renderer, 'dsh-better-goal-implementation-enhanced').props.onChange() })
   assert.equal(selectedChoice(page.renderer, 'dsh-better-goal-round-limit-mode'), 'fixed')
-  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit').props.value, '23', 'switching away retains an inactive enhanced draft')
+  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit').props.value, '23', 'switching preserves the inactive enhanced draft')
   await act(async () => { byId(page.renderer, 'dsh-better-goal-implementation-native').props.onChange() })
-  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit-mode-fixed'), undefined)
+  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit-mode'), undefined)
   assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit'), undefined)
-  assert.match(pageText(page.renderer), /nativeSection/)
-  assert.match(pageText(page.renderer), /restartAfterSave/)
+  assert.match(pageText(page.renderer), /reloadRequired/)
   const save = primaryButton(page.renderer).props.onClick
   await act(async () => { save(); save() })
   assert.deepEqual(page.controller.calls, [{ ops: [{ op: 'set', path: ['implementation'], value: 'native' }], revision: 3 }])
@@ -839,6 +850,9 @@ test('goal details expand without mutation and multiline editing uses a composit
   await act(async () => { byLabel(bar.renderer, 'action.edit').props.onClick() })
   const input = byLabel(bar.renderer, 'objective.aria')
   assert.equal(input.type, 'textarea')
+  assert.equal(byLabel(bar.renderer, 'action.save').props.disabled, true)
+  await act(async () => { input.props.onKeyDown({ key: 'Enter', ctrlKey: true, preventDefault() {} }) })
+  assert.equal(bar.setup.goalCalls.length, 0, 'unchanged objectives do not create a revision')
   await act(async () => { input.props.onChange({ target: { value: 'Line one\nLine two' } }) })
   await act(async () => {
     byLabel(bar.renderer, 'objective.aria').props.onKeyDown({ key: 'Enter', ctrlKey: true, nativeEvent: { isComposing: true } })
@@ -863,7 +877,7 @@ test('completed and cleared goals remain searchable in read-only session history
   await act(async () => { byLabel(bar.renderer, 'history.search').props.onChange({ target: { value: 'release' } }) })
   assert.match(pageText(bar.renderer), /Release shipped/)
   assert.doesNotMatch(pageText(bar.renderer), /Old prototype/)
-  await act(async () => { byLabel(bar.renderer, 'history.all').props.onChange({ target: { value: 'cleared' } }) })
+  await chooseOption(bar.renderer, byLabel(bar.renderer, 'history.all'), 'phase.cleared')
   assert.match(pageText(bar.renderer), /history.empty/)
   assert.equal(bar.setup.goalCalls.length, 0)
   assert.equal(bar.setup.commandCalls.length, 0)
@@ -875,7 +889,7 @@ test('existing native selection exposes its two policies and saves canonical fie
   globalThis.fetch = async () => ({ ok: true, json: async () => ({ activeConfig: { implementation: 'native', nativeDefaultMaxGoalRounds: 17, nativeBlockedAfterConsecutiveRounds: 5 }, runtime: { implementation: 'native' }, requiresReload: false }) })
   const page = await mountSettings({ value: { implementation: 'native', nativeDefaultMaxGoalRounds: 17, nativeBlockedAfterConsecutiveRounds: 5, roundLimitMode: 'fixed', roundLimit: 99 } })
   assert.equal(selectedChoice(page.renderer, 'dsh-better-goal-implementation'), 'native')
-  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit-mode-fixed'), undefined)
+  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit-mode'), undefined)
   const nativeCap = () => byId(page.renderer, 'dsh-better-goal-nativeDefaultMaxGoalRounds')
   const nativeThreshold = () => byId(page.renderer, 'dsh-better-goal-nativeBlockedAfterConsecutiveRounds')
   assert.equal(nativeCap().props.value, '17')
@@ -889,7 +903,7 @@ test('existing native selection exposes its two policies and saves canonical fie
     nativeCap().props.onChange({ target: { value: '24' } })
     nativeThreshold().props.onChange({ target: { value: '2' } })
   })
-  assert.match(pageText(page.renderer), /restartAfterSave/)
+  assert.match(pageText(page.renderer), /reloadRequired/)
   await act(async () => { primaryButton(page.renderer).props.onClick() })
   assert.deepEqual(page.controller.calls, [{ ops: [
     { op: 'set', path: ['nativeDefaultMaxGoalRounds'], value: 24 },
@@ -898,6 +912,126 @@ test('existing native selection exposes its two policies and saves canonical fie
   await act(async () => { page.controller.finish(true); await Promise.resolve() })
   assert.match(pageText(page.renderer), /saved/)
   assert.match(pageText(page.renderer), /reloadRequired/)
+})
+
+test('settings dirty guard includes invalid input, ignores equivalent numbers, and clears after accepted save', async () => {
+  const page = await mountSettings({ value: { roundLimitMode: 'fixed', roundLimit: 12 } })
+  const root = () => page.renderer.root.find((node) => isHost(node) && node.props.className === 'dbg-cfg')
+  const input = () => byId(page.renderer, 'dsh-better-goal-round-limit')
+  assert.equal(root().props['data-settings-dirty'], false)
+  assert.equal(primaryButton(page.renderer), undefined)
+  await act(async () => { input().props.onChange({ target: { value: '' } }) })
+  assert.equal(root().props['data-settings-dirty'], true)
+  assert.equal(primaryButton(page.renderer).props.disabled, true)
+  assert.equal(input().props['aria-describedby'], 'dsh-better-goal-round-limit-error')
+  await act(async () => { input().props.onChange({ target: { value: '0012' } }) })
+  assert.equal(root().props['data-settings-dirty'], false, 'formatting alone does not change the saved value')
+  assert.equal(primaryButton(page.renderer), undefined)
+  await act(async () => { input().props.onChange({ target: { value: '13' } }) })
+  await act(async () => { primaryButton(page.renderer).props.onClick() })
+  assert.equal(root().props['data-settings-busy'], true)
+  assert.equal(primaryButton(page.renderer).props.disabled, true)
+  await act(async () => { page.controller.finish(true); await Promise.resolve() })
+  assert.equal(root().props['data-settings-busy'], false)
+  assert.equal(root().props['data-settings-dirty'], false)
+  assert.equal(primaryButton(page.renderer), undefined, 'success hides the save bar before the mirror advances')
+  assert.match(pageText(page.renderer), /saved/)
+  assert.equal(input().props.value, '13', 'accepted draft stays visible')
+})
+
+test('failed save preserves the draft and inline recovery controls', async () => {
+  const controller = makeConfigForm({ value: { roundLimitMode: 'fixed', roundLimit: 12 } })
+  controller.mutate = async () => { throw new Error('offline') }
+  const page = await mountSettings({ controller })
+  await act(async () => { byId(page.renderer, 'dsh-better-goal-round-limit').props.onChange({ target: { value: '19' } }) })
+  await act(async () => { primaryButton(page.renderer).props.onClick(); await Promise.resolve() })
+  assert.match(pageText(page.renderer), /saveFailed.*offline/)
+  assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit').props.value, '19')
+  assert.equal(primaryButton(page.renderer).props.disabled, false)
+  assert.equal(page.renderer.root.find((node) => isHost(node) && node.props.className === 'dbg-cfg').props['data-settings-dirty'], true)
+})
+
+test('history combobox supports keyboard navigation and consumes Escape without changing the filter', async () => {
+  const entries = [{ ...activeGoal, phase: 'complete', roundsStarted: 3, updatedAt: 100 }]
+  const bar = await mountGoalBar({ projection: null, history: { entries, error: null } })
+  await act(async () => { byLabel(bar.renderer, 'action.history').props.onClick() })
+  const trigger = () => byLabel(bar.renderer, 'history.all')
+  let prevented = 0
+  let stopped = 0
+  const key = async (value) => { await act(async () => { trigger().props.onKeyDown({ key: value, preventDefault() { prevented++ }, stopPropagation() { stopped++ } }) }) }
+  assert.equal(trigger().props.role, 'combobox')
+  await key('ArrowDown')
+  assert.equal(trigger().props['aria-expanded'], true)
+  await key('End')
+  assert.match(trigger().props['aria-activedescendant'], /option-6$/)
+  await key('Escape')
+  assert.equal(stopped, 1, 'Escape does not close the host settings or conversation panel')
+  assert.equal(trigger().props.value, 'all')
+  assert.equal(trigger().props['aria-expanded'], false)
+  await key('Home')
+  await key('End')
+  await key('Enter')
+  assert.equal(trigger().props.value, 'archived')
+  assert.match(pageText(bar.renderer), /history.empty/)
+  assert.ok(prevented > 0)
+  const clear = bar.renderer.root.find((node) => isHost(node) && node.type === 'button' && allText(node) === 'history.clearFilters')
+  await act(async () => { clear.props.onClick() })
+  assert.equal(trigger().props.value, 'all')
+  assert.match(pageText(bar.renderer), /Ship the independent goal/)
+  assert.equal(bar.setup.goalCalls.length, 0)
+})
+
+test('clear confirmation resets on blur, Escape, and a new goal revision', async () => {
+  const bar = await mountGoalBar({ projection: { goal: activeGoal, roundsStarted: 2 } })
+  await act(async () => { byLabel(bar.renderer, 'action.clear').props.onClick() })
+  await act(async () => { byLabel(bar.renderer, 'action.confirmClear').props.onBlur() })
+  assert.ok(byLabel(bar.renderer, 'action.clear'))
+  await act(async () => { byLabel(bar.renderer, 'action.clear').props.onClick() })
+  let stopped = false
+  await act(async () => { byLabel(bar.renderer, 'action.confirmClear').props.onKeyDown({ key: 'Escape', preventDefault() {}, stopPropagation() { stopped = true } }) })
+  assert.equal(stopped, true)
+  await act(async () => { byLabel(bar.renderer, 'action.clear').props.onClick() })
+  await bar.update({ goal: { ...activeGoal, revision: 5 }, roundsStarted: 3 })
+  assert.ok(byLabel(bar.renderer, 'action.clear'))
+  assert.equal(byLabel(bar.renderer, 'action.confirmClear'), undefined)
+  assert.equal(bar.setup.goalCalls.length, 0)
+})
+
+test('runtime diagnosis can retry without disabling configuration or writing it', async (context) => {
+  const originalFetch = globalThis.fetch
+  context.after(() => { globalThis.fetch = originalFetch })
+  let requests = 0
+  globalThis.fetch = async () => {
+    if (++requests === 1) throw new Error('disconnected')
+    return { ok: true, json: async () => ({ runtime: { implementation: 'native' }, requiresReload: false }) }
+  }
+  const page = await mountSettings({ value: { implementation: 'native', nativeBlockedAfterConsecutiveRounds: 5 } })
+  assert.match(pageText(page.renderer), /runtimeUnavailable/)
+  assert.equal(byId(page.renderer, 'dsh-better-goal-nativeDefaultMaxGoalRounds').props.disabled, false)
+  const retry = page.renderer.root.find((node) => isHost(node) && node.type === 'button' && allText(node) === 'retry')
+  await act(async () => { retry.props.onClick(); await Promise.resolve() })
+  assert.equal(requests, 2)
+  assert.match(pageText(page.renderer), /runtimeActive.*runtimeNative/)
+  assert.equal(page.controller.calls.length, 0)
+  assert.equal(primaryButton(page.renderer), undefined)
+  const advanced = page.renderer.root.find((node) => isHost(node) && node.props.className === 'dbg-advanced')
+  assert.equal(advanced.props.open, undefined)
+  assert.match(allText(advanced), /modified/)
+})
+
+test('Escape closes expanded field help before reaching the host modal', async () => {
+  const page = await mountSettings({ value: { implementation: 'native' } })
+  const help = page.renderer.root.findAll((node) => isHost(node) && node.props.className === 'dbg-help dbg-info')[0]
+  let focused = false
+  let prevented = false
+  let stopped = false
+  const target = { open: true, querySelector: () => ({ focus() { focused = true } }) }
+  await act(async () => { help.props.onKeyDown({ key: 'Escape', currentTarget: target, preventDefault() { prevented = true }, stopPropagation() { stopped = true } }) })
+  assert.equal(target.open, false)
+  assert.equal(prevented, true)
+  assert.equal(stopped, true)
+  assert.equal(focused, true)
+  assert.equal(page.controller.calls.length, 0)
 })
 
 test('inactive policy drafts preserve existing canonical parameters without validating hidden input', () => {

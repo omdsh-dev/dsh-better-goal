@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
+import { isDeepStrictEqual } from 'node:util'
 import { mkdtemp, mkdir, readFile, writeFile, cp, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -14,15 +14,17 @@ const hot = process.env.GOAL_SMOKE_HOT === '1'
 const implementation = process.env.GOAL_SMOKE_IMPLEMENTATION ?? 'enhanced'
 assert.ok(['standalone', 'apollo', 'both'].includes(mode))
 assert.ok(['enhanced', 'native'].includes(implementation))
-const apolloRoot = mode === 'standalone' ? undefined : resolve(process.env.APOLLO_PACKAGE_ROOT ?? join(root, '../dsh-apollo'))
+const apolloRoot = mode === 'standalone' ? undefined : resolve(process.env.APOLLO_PACKAGE_ROOT ?? (process.env.APOLLO_PLUGIN_SOURCE_ROOT ? join(process.env.APOLLO_PLUGIN_SOURCE_ROOT, 'dsh-apollo') : join(root, '../dsh-apollo')))
 const apolloName = apolloRoot ? JSON.parse(await readFile(join(apolloRoot, 'package.json'), 'utf8')).name : undefined
 const home = await mkdtemp(join(tmpdir(), 'dsh-better-goal-smoke-'))
 process.env.DSH_HOME = home
 process.env.DSH_TELEMETRY_DISABLED = '1'
+assert.equal(JSON.parse(await readFile(join(dsh, 'package.json'), 'utf8')).version, '0.2.2-rc.1', 'smoke requires the exact supported host')
 const A = await import(pathToFileURL(join(dirname(dsh), 'dsh-app-boot/lib/index.js')))
+const { PROFILE_TEMPLATES } = await import(pathToFileURL(join(dirname(dsh), 'dsh-official-bundles/lib/index.js')))
 const { symbols } = await import(pathToFileURL(join(dirname(dsh), 'cordis/lib/index.js')))
 const dir = A.resolveProfileDir('it', home)
-const bundles = [...A.PROFILE_TEMPLATES.headless.bundles, ...(mode === 'standalone' ? ['dsh-better-goal'] : mode === 'apollo' ? [apolloName] : [apolloName, 'dsh-better-goal'])]
+const bundles = [...PROFILE_TEMPLATES.headless.bundles, ...(mode === 'standalone' ? ['dsh-better-goal'] : mode === 'apollo' ? [apolloName] : [apolloName, 'dsh-better-goal'])]
 A.initProfile(dir, bundles)
 const packageFile = join(dir, 'package.json')
 const manifest = JSON.parse(await readFile(packageFile, 'utf8'))
@@ -48,8 +50,8 @@ if (mode !== 'standalone') {
   // package through its dependency closure, not through selected goal bundles.
   if (mode === 'apollo') delete manifest.dependencies['dsh-better-goal']
   // Apollo's bundle closure also pulls the sibling plugins (eng preset needs
-  // the compact engine). Resolve them from their sibling checkouts; env vars
-  // override each root. The goal row itself resolves through `modules` above.
+  // the compact engine). Stage shipped files only: symlinking source checkouts
+  // would leak their dev node_modules and create duplicate official host services.
   const siblings = {
     '@menghuan1918/dsh-better-subagent': process.env.SUBAGENT_PACKAGE_ROOT ?? join(root, '../dsh-better-subagent'),
     'dsh-better-compact': process.env.COMPACT_PACKAGE_ROOT ?? join(root, '../dsh-better-compact'),
@@ -58,16 +60,26 @@ if (mode !== 'standalone') {
   }
   for (const [name, target] of Object.entries(siblings)) {
     const dest = join(modules, name)
-    await mkdir(dirname(dest), { recursive: true })
-    if (!existsSync(dest)) await symlink(resolve(target), dest)
+    await mkdir(dest, { recursive: true })
+    const sibling = JSON.parse(await readFile(join(target, 'package.json'), 'utf8'))
+    assert.equal(sibling.engines.dsh, '0.2.2-rc.1', `${name} must target the exact host`)
+    for (const file of ['package.json', ...sibling.files]) {
+      await cp(join(target, file), join(dest, file), { recursive: true })
+    }
   }
 }
 await writeFile(packageFile, JSON.stringify(manifest, null, 2))
 const preset = mode === 'standalone' ? 'standard' : 'eng'
+const standalonePatches = mode === 'standalone' ? A.loadOverlayPatches('better-goal-smoke', join(dirname(dsh), 'dsh-web-app/presets/standard.patch.yml')) : []
+if (hot && mode === 'standalone') {
+  const standard = standalonePatches.flatMap((patch) => patch.insert ?? []).find((row) => row.id === 'preset-standard')
+  standard.config.plugins.find((row) => row.id === 'tool-ask-user').config = { mode: 'timed', timeout: 1 }
+}
 await writeFile(join(dir, 'cordis.patch.yml'), JSON.stringify([
   { id: 'dsh-better-goal', config: { implementation, nativeDefaultMaxGoalRounds: 7, nativeBlockedAfterConsecutiveRounds: 2 } },
-  ...(mode === 'standalone' ? A.loadOverlayPatches('better-goal-smoke', join(dirname(dsh), 'dsh-web-app/presets/standard.patch.yml')) : []),
+  ...standalonePatches,
   { id: 'headless-startup', disabled: true }, { id: 'headless-runner', disabled: true },
+  { id: 'sandbox-policy', inject: [], config: { mode: 'workspace-write', workspaceRoot: home, additionalWritableRoots: [] } },
   { id: 'credentials', disabled: false, config: { watch: false } },
   { insert: [
     { id: 'agent-preset-registry', name: '@deepseek-ai/dsh-agent-preset-registry', config: { default: preset } },
@@ -81,9 +93,20 @@ await writeFile(join(dir, 'cordis.patch.yml'), JSON.stringify([
   ] },
 ]))
 const { runProfile } = await import(pathToFileURL(join(dsh, 'lib/profile-boot.js')))
+async function boot() {
+  const profile = A.loadProfile('better-goal-smoke', 'it', packageFile, home)
+  assert.deepEqual(profile.skippedBundles, [])
+  const goalLayer = profile.layers.find((layer) => layer.packageName === 'dsh-better-goal')
+  if (goalLayer) assert.equal(goalLayer.packageDir, plugin, 'bundle resolves to the staged goal package')
+  if (apolloRoot) assert.equal(profile.layers.find((layer) => layer.packageName === apolloName).packageDir, join(modules, apolloName))
+  assert.equal(JSON.parse(await readFile(join(plugin, 'package.json'), 'utf8')).version, '0.4.0')
+  const booted = await runProfile({ profile: 'it', resolvedProfile: { profile, installAnchor: packageFile }, patchFiles: [], args: [], environment: A.loadLayeredEnv('dsh') })
+  assert.equal((await booted.ctx.loader.import('dsh-better-goal')).apply.toString(), (await import('../src/index.js')).apply.toString(), 'runtime uses the staged goal implementation')
+  return booted
+}
 let ctx
 try {
-  const booted = await runProfile({ profile: 'it', patchFiles: [], args: [], environment: A.loadLayeredEnv('dsh') })
+  const booted = await boot()
   ctx = booted.ctx
   let scripted = []
   let askCallId
@@ -239,7 +262,16 @@ try {
   await agent.whenIdle()
   assert.equal(scripted.length, 0)
   assert.equal(ctx.goals.get(agent).roundsStarted, 1, 'only one automatic round must be admitted')
-  if (hot) {
+  if (hot && mode === 'both') {
+    const settings = ctx.get('settings')
+    const row = (await settings.describe()).find((entry) => entry.ns === 'dsh-better-goal')
+    assert.ok(row)
+    await assert.rejects(
+      settings.update('dsh-better-goal', { roundLimitMode: 'fixed', roundLimit: 3 }, row.revision),
+      /Configuration for "dsh-better-goal" is overridden/,
+    )
+  }
+  if (hot && mode !== 'both') {
     console.log('HOT_SETTINGS_BEGIN')
     const settings = ctx.get('settings')
     assert.ok(settings, 'formal settings service is available')
@@ -247,17 +279,24 @@ try {
     assert.ok(row, 'goal row exposes its formal Config')
     console.log('HOT_SETTINGS_DESCRIBED')
     const service = ctx.get('goals')
-    await settings.update('dsh-better-goal', { roundLimitMode: 'fixed', roundLimit: 3, questionTimeoutSeconds: 1 }, row.revision)
+    if (mode !== 'standalone') {
+      const askRow = (await settings.describe()).find((entry) => entry.ns === 'dsh-better-ask-user')
+      await settings.update('dsh-better-ask-user', { questionTimeoutSeconds: 1, timeoutBehavior: 'native', goalTimeoutBehavior: 'native' }, askRow.revision)
+    }
+    const askBefore = ctx.tools.get('ask_user_question', agent)
+    await settings.update('dsh-better-goal', { roundLimitMode: 'fixed', roundLimit: 3, questionTimeoutSeconds: 75 }, row.revision)
+    assert.equal(ctx.tools.get('ask_user_question', agent), askBefore, 'goal settings never replace the question owner')
+    assert.equal(ctx.get('betterGoalConfig').status().capabilities.questionTimeout, false)
     assert.equal(ctx.get('goals')[symbols.original], service[symbols.original], 'volatile settings do not remount the goal state service')
     const saved = (await settings.describe()).find((entry) => entry.ns === 'dsh-better-goal')
-    assert.equal(saved.value.questionTimeoutSeconds, 1)
-    let pending = false, loggedTimed = false, loggedFixed = false, latestTools = []
+    assert.equal(saved.value.questionTimeoutSeconds, 75)
+    let pending = false, loggedQuestionSchema = false, loggedFixed = false, latestTools = []
     const observe = ctx.on('session/event', (session, event) => {
       if (session.id !== agent.id) return
       if (event.type === 'request/header' && event.data.header.tools) latestTools = event.data.header.tools
       if (event.type === 'tool/call') {
         if (event.data.name === 'goal') loggedFixed = !('max_goal_rounds' in latestTools.find((tool) => tool.name === 'goal').parameters.properties)
-        if (event.data.name === 'ask_user_question') loggedTimed = 'timeout' in latestTools.find((tool) => tool.name === 'ask_user_question').parameters.properties
+        if (event.data.name === 'ask_user_question') loggedQuestionSchema = isDeepStrictEqual(latestTools.find((tool) => tool.name === 'ask_user_question').parameters, askBefore.parameters)
       }
       if (event.type !== 'tool/result' || event.data.message.toolCallId !== askCallId) return
       const text = event.data.message.content.find((block) => block.type === 'text')?.text
@@ -266,7 +305,7 @@ try {
     assert.ok(ctx.tools.get('ask_user_question', agent), 'the selected preset provides questions')
     scripted = [
       () => ({ action: 'set', objective: 'Verify hot goal settings and unanswered questions' }),
-      () => ({ $tool: 'ask_user_question', timeout: -1, questions: [{ id: 'it-q', question: 'Integration question awaiting a later answer.' }] }),
+      () => ({ $tool: 'ask_user_question', questions: [{ id: 'it-q', question: 'Integration question awaiting a later answer.' }] }),
       control('complete'), null,
     ]
     const finished = new Promise((resolve, reject) => {
@@ -282,10 +321,10 @@ try {
     observe()
     assert.equal(scripted.length, 0)
     assert.equal(ctx.goals.get(agent).maxGoalRounds, 3)
-    assert.equal(pending, true, 'the new one-second host setting overrides a model request to wait forever')
+    assert.equal(pending, true, 'the independent question owner uses its one-second wait, not the legacy goal value of 75')
     assert.equal('max_goal_rounds' in ctx.tools.get('goal', agent).parameters.properties, false)
     assert.equal(loggedFixed, true, 'the first hot-updated request header hides the fixed round parameter')
-    assert.equal(loggedTimed, true, 'the first timed call is logged with the stable timed marker')
+    assert.equal(loggedQuestionSchema, true, 'the first question call preserves its independent owner schema')
     const questions = ctx.sessionProjections.stateOf(agent.session, 'userQuestions')
     assert.ok(questions.questions.active.some((question) => question.callId === askCallId && question.state === 'continued'))
     const answered = new Promise((resolve, reject) => {
@@ -306,7 +345,7 @@ try {
   const persistedId = agent.id
   await ctx.fiber.dispose()
   ctx = undefined
-  ctx = (await runProfile({ profile: 'it', patchFiles: [], args: [], environment: A.loadLayeredEnv('dsh') })).ctx
+  ctx = (await boot()).ctx
   ctx.llm.registerAdapter(['it-noop'], adapter)
   const restored = (await ctx.agents.resume({ resumeSessionId: persistedId, agentOptions: { provider: 'it-noop', model: 'noop' }, setup })).agent
   assert.equal(ctx.goals.get(restored).phase, 'active')
@@ -331,7 +370,8 @@ try {
   }
   const result = { passed: true, mode, hotSettings: hot, home, checks: ['real-profile-boot', 'single-goal-tool', 'legacy-tools-hidden', 'scoped-command', 'create-pause-resume-complete-clear', 'real-tool-dispatch', 'native-goal-rpc', 'automatic-round', 'cold-restore-disarmed', 'fork-disarmed', 'agent-full-state-control-without-human-input'] }
   result.checks.push('five-action-model-schema', 'model-mutations-without-caller-refs')
-  if (hot) result.checks.push('hot-settings-persisted-without-remount', 'first-request-schema-updated', 'pending-question-late-answer')
+  if (hot && mode === 'both') result.checks.push('duplicate-bundle-settings-rejected')
+  if (hot && mode !== 'both') result.checks.push('hot-settings-persisted-without-remount', 'first-request-schema-updated', 'question-timeout-owned-independently', 'pending-question-late-answer')
   if (mode !== 'standalone') result.checks.push('eng-ptc-single-goal-tool')
   await writeFile(join(home, 'results.json'), JSON.stringify(result, null, 2))
   console.log('BETTER_GOAL_RUNTIME_SMOKE_PASSED', JSON.stringify(result))

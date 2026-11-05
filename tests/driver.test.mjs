@@ -135,10 +135,22 @@ test('exhausted finite cap fails immediately while sentinel admits another round
 test('user abort disarms synchronously and pauses at idle without injecting a new round', async (t) => {
   const h = harness(); t.after(() => h.close())
   h.start(); await drain(); await h.admit()
-  h.emit('session/event', h.agent.session, { type: 'turn/end', data: { reason: { kind: 'aborted' } } })
+  h.emit('session/event', h.agent.session, { type: 'turn/end', data: { reason: { kind: 'aborted', reason: { kind: 'user' } } } })
   assert.equal(h.goal.activation, 'disarmed')
   h.idle(); await drain()
   assert.equal(h.goal.phase, 'paused')
+  assert.equal(h.queued.length, 1)
+})
+
+test('disposed turn disarms without persisting a user pause', async (t) => {
+  const h = harness(); t.after(() => h.close())
+  h.start(); await drain(); await h.admit()
+  const revision = h.goal.revision
+  h.emit('session/event', h.agent.session, { type: 'turn/end', data: { reason: { kind: 'aborted', reason: { kind: 'disposed' } } } })
+  assert.equal(h.goal.activation, 'disarmed')
+  h.idle(); await drain()
+  assert.equal(h.goal.phase, 'active')
+  assert.equal(h.goal.revision, revision)
   assert.equal(h.queued.length, 1)
 })
 
