@@ -27,6 +27,8 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const SESSION_ID = 'session-1'
 const UNLIMITED = UNLIMITED_ROUNDS
+/** The row-config key the Plugins page derives for Better DSH's declaring bundle. */
+const BETTER_DSH_ROW_CONFIG_KEY = 'dsh-better-dsh#dsh-better-goal'
 /** The row-config key the Plugins page derives for Apollo's declaring bundle. */
 const APOLLO_ROW_CONFIG_KEY = 'dsh-apollo#dsh-better-goal'
 /** The row-config key for Apollo's published scoped package. */
@@ -296,14 +298,14 @@ test('closure id, injected services, dictionaries, and every slot registration',
   assert.equal(PACKAGE_NAME, 'dsh-better-goal')
   assert.deepEqual(
     rows.map((entry) => entry.options.key).sort(),
-    [APOLLO_ROW_CONFIG_KEY, ROW_CONFIG_KEY, SCOPED_APOLLO_ROW_CONFIG_KEY].sort(),
+    [BETTER_DSH_ROW_CONFIG_KEY, APOLLO_ROW_CONFIG_KEY, ROW_CONFIG_KEY, SCOPED_APOLLO_ROW_CONFIG_KEY].sort(),
   )
   assert.equal(new Set(rows.map((entry) => entry.options.key)).size, rows.length, 'one entry per exact key')
   for (const row of rows) {
     assert.equal(row.component, rows[0].component, 'one entry component serves every key')
     assert.equal(row.options.locale, 'better-goal')
   }
-  assert.equal(setup.slots.registrations.length, 4)
+  assert.equal(setup.slots.registrations.length, 5)
 })
 
 // ── GoalBar ────────────────────────────────────────────────────────────────
@@ -601,14 +603,14 @@ async function mountConfigEntry(record, controller) {
   }
 }
 
-test('three exact row-config keys are unique and each dispatches one shared entry', () => {
+test('four exact row-config keys are unique and each dispatches one shared entry', () => {
   const setup = install()
   setup.declare('plugins.row.config')
-  const expected = [ROW_CONFIG_KEY, APOLLO_ROW_CONFIG_KEY, SCOPED_APOLLO_ROW_CONFIG_KEY]
+  const expected = [ROW_CONFIG_KEY, BETTER_DSH_ROW_CONFIG_KEY, APOLLO_ROW_CONFIG_KEY, SCOPED_APOLLO_ROW_CONFIG_KEY]
   const rows = rowConfigEntries(setup)
-  assert.equal(rows.length, 3, 'each assembly variant registers one row-config entry')
+  assert.equal(rows.length, 4, 'each assembly variant registers one row-config entry')
   assert.deepEqual(rows.map((entry) => entry.options.key).sort(), [...expected].sort())
-  assert.equal(new Set(rows.map((entry) => entry.options.key)).size, 3, 'the three keys never collide')
+  assert.equal(new Set(rows.map((entry) => entry.options.key)).size, 4, 'the four keys never collide')
   for (const key of expected) {
     const entry = dispatchRowConfig(setup, key)
     assert.equal(entry.options.locale, 'better-goal')
@@ -616,10 +618,10 @@ test('three exact row-config keys are unique and each dispatches one shared entr
   }
 })
 
-test('standalone, legacy Apollo, and scoped Apollo keys dispatch the same page over one config store', async () => {
+test('standalone, Better DSH, legacy Apollo, and scoped Apollo keys dispatch the same page over one config store', async () => {
   const setup = install()
   setup.declare('plugins.row.config')
-  const keys = [ROW_CONFIG_KEY, APOLLO_ROW_CONFIG_KEY, SCOPED_APOLLO_ROW_CONFIG_KEY]
+  const keys = [ROW_CONFIG_KEY, BETTER_DSH_ROW_CONFIG_KEY, APOLLO_ROW_CONFIG_KEY, SCOPED_APOLLO_ROW_CONFIG_KEY]
   const entries = keys.map((key) => dispatchRowConfig(setup, key))
   assert.equal(new Set(entries.map((entry) => entry.component)).size, 1)
 

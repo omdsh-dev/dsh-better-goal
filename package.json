@@ -1,15 +1,15 @@
 {
   "name": "dsh-better-goal",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Independent DSH goal plugin: one goal tool, persistent continuation, hot settings and native-compatible history.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Menghuan1918/dsh-better-goal.git"
+    "url": "git+https://github.com/omdsh-dev/dsh-better-goal.git"
   },
   "publishConfig": {
-    "access": "public",
-    "registry": "https://registry.npmjs.org/"
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
   },
   "type": "module",
   "main": "src/index.js",
@@ -79,5 +79,9 @@
         "@deepseek-ai/dsh-client-ui-settings"
       ]
     }
+  },
+  "homepage": "https://github.com/omdsh-dev/dsh-better-goal#readme",
+  "bugs": {
+    "url": "https://github.com/omdsh-dev/dsh-better-goal/issues"
   }
 }

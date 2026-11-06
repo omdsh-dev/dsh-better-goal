@@ -49,11 +49,12 @@ window.__ModuleLoader__.load({
      * is scoped. Registering the same page under every exact key keeps the
      * independent plugin's config namespace and store unchanged in any assembly.
      */
+    const BETTER_DSH_ROW_KEY = 'dsh-better-dsh#dsh-better-goal'
     const APOLLO_ROW_KEY = 'dsh-apollo#dsh-better-goal'
     /** Apollo's published scoped package name declares the same row. */
     const SCOPED_APOLLO_ROW_KEY = '@menghuan1918/dsh-apollo#dsh-better-goal'
     /** Every assembly's `plugins.row.config` key, in dispatch order. */
-    const ROW_CONFIG_KEYS = Object.freeze([ROW_KEY, APOLLO_ROW_KEY, SCOPED_APOLLO_ROW_KEY])
+    const ROW_CONFIG_KEYS = Object.freeze([ROW_KEY, BETTER_DSH_ROW_KEY, APOLLO_ROW_KEY, SCOPED_APOLLO_ROW_KEY])
     const ROUND_LIMIT_MODES = Object.freeze(['agent', 'unlimited', 'fixed'])
     const DEFAULT_ROUND_LIMIT = 256
     const UNLIMITED_ROUNDS = Number.MAX_SAFE_INTEGER
