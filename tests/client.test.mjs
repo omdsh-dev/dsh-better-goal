@@ -676,7 +676,7 @@ test('settings page exposes defaults, fixed mode input, validation, and atomic s
   })
   assert.equal(page.renderer.root.findAll((node) => isHost(node) && node.type === 'h3' && node.props.className === 'dbg-title').length, 1)
   assert.match(pageText(page.renderer), /settingsTitle/)
-  assert.doesNotMatch(pageText(page.renderer), /settingsIntro/)
+  assert.match(pageText(page.renderer), /settingsIntro/)
   assert.equal(selectedChoice(page.renderer, 'dsh-better-goal-round-limit-mode'), 'agent')
   assert.equal(byId(page.renderer, 'dsh-better-goal-round-limit'), undefined)
   assert.equal(
@@ -1010,20 +1010,18 @@ test('runtime diagnosis can retry without disabling configuration or writing it'
   const page = await mountSettings({ value: { implementation: 'native', nativeBlockedAfterConsecutiveRounds: 5 } })
   assert.match(pageText(page.renderer), /runtimeUnavailable/)
   assert.equal(byId(page.renderer, 'dsh-better-goal-nativeDefaultMaxGoalRounds').props.disabled, false)
-  const retry = page.renderer.root.find((node) => isHost(node) && node.type === 'button' && allText(node) === 'retry')
+  const retry = page.renderer.root.find((node) => isHost(node) && node.type === 'button' && String(node.props.className).includes('dbg-runtimeRefresh'))
   await act(async () => { retry.props.onClick(); await Promise.resolve() })
   assert.equal(requests, 2)
   assert.match(pageText(page.renderer), /runtimeActive.*runtimeNative/)
   assert.equal(page.controller.calls.length, 0)
   assert.equal(primaryButton(page.renderer), undefined)
-  const advanced = page.renderer.root.find((node) => isHost(node) && node.props.className === 'dbg-advanced')
-  assert.equal(advanced.props.open, undefined)
-  assert.match(allText(advanced), /modified/)
+  assert.equal(page.renderer.root.findAll((node) => isHost(node) && node.props.className === 'dbg-advanced').length, 0)
 })
 
 test('Escape closes expanded field help before reaching the host modal', async () => {
   const page = await mountSettings({ value: { implementation: 'native' } })
-  const help = page.renderer.root.findAll((node) => isHost(node) && node.props.className === 'dbg-help dbg-info')[0]
+  const help = page.renderer.root.findAll((node) => isHost(node) && String(node.props.className).includes('dbg-help'))[0]
   let focused = false
   let prevented = false
   let stopped = false

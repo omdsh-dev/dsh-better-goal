@@ -17,7 +17,7 @@
  * so a stale render cannot become the authority.
  *
  * Styling follows the shared UI contract (Apollo docs/UI-KIT.md): flat 1px
- * lines, one 920px settings column, 32px controls. Everything is scoped under
+ * lines, one 960px settings column, 32px controls. Everything is scoped under
  * `dbg-` classes; no shadcn, no build.
  */
 
@@ -56,6 +56,8 @@ window.__ModuleLoader__.load({
     /** Every assembly's `plugins.row.config` key, in dispatch order. */
     const ROW_CONFIG_KEYS = Object.freeze([ROW_KEY, BETTER_DSH_ROW_KEY, APOLLO_ROW_KEY, SCOPED_APOLLO_ROW_KEY])
     const ROUND_LIMIT_MODES = Object.freeze(['agent', 'unlimited', 'fixed'])
+    /** Continuation-mode cards, in radiogroup order. */
+    const IMPLEMENTATION_MODES = Object.freeze(['enhanced', 'native'])
     const DEFAULT_ROUND_LIMIT = 256
     const UNLIMITED_ROUNDS = Number.MAX_SAFE_INTEGER
     const STYLE_GOAL = 'dsh-better-goal/goal.css'
@@ -67,7 +69,7 @@ window.__ModuleLoader__.load({
     const zh = {
       summary: '目标与自动续跑',
       waitingForm: '正在加载设置…',
-      noFormHint: '请检查插件的设置服务是否已加载，并使用受信任的连接。',
+      noFormHint: '请使用受信任的连接打开设置。',
       loading: '正在读取配置…',
       unavailable: '设置不可用',
       readonly: '只读',
@@ -78,12 +80,18 @@ window.__ModuleLoader__.load({
       saveFailed: '保存失败：',
       reset: '放弃改动',
       modeLabel: '轮数策略',
+      roundDefinition: '一轮指目标的一次自动续跑。',
       modeAgent: '由 Agent 决定',
-      modeAgentHint: '可由 Agent 设置；未设置时不限轮数。',
+      modeAgentFlow: '目标 → 由 Agent 决定 → 上限',
+      modeAgentStop: '达到 Agent 设定的上限、目标完成或受阻时停止。',
       modeUnlimited: '无上限',
-      modeUnlimitedHint: '持续推进，直到完成或暂停。',
+      modeUnlimitedFlow: '目标 → 第 1 轮 → 第 2 轮 → …',
+      modeUnlimitedStop: '仅在目标完成或受阻时停止。',
       modeFixed: '固定轮数',
-      modeFixedHint: '每个目标最多运行指定轮数。',
+      modeFixedFlow: '目标 → 第 1 轮 → … → 第 N 轮',
+      modeFixedStop: '达到第 N 轮后停止。',
+      modeStop: '停止条件',
+      roundSpan: '第 1 轮 → … → 第 {rounds} 轮',
       roundLimitLabel: '轮数上限',
       roundLimitHint: '达到上限后停止续跑。',
       roundLimitUnlimited: '当前值等于兼容哨兵，界面显示为无上限。',
@@ -95,8 +103,8 @@ window.__ModuleLoader__.load({
       invalidQuestionTimeout: '提问超时必须是 -1，或 1 到 2147483 之间的整数。',
       readonlyNote: '只读：当前无法写入宿主配置。',
       unavailableNote: '不可写：当前连接下该配置不可用。',
-      settingsTitle: '目标',
-      settingsIntro: '',
+      settingsTitle: '目标与续跑',
+      settingsIntro: '管理目标自动续跑的方式、轮数上限与受阻判定。',
       'phase.active': '进行中',
       'phase.active.disarmed': '已暂停',
       'phase.paused': '已暂停',
@@ -111,24 +119,34 @@ window.__ModuleLoader__.load({
       'action.clear': '清除目标',
       'cap.unlimited': '无上限',
       'meta.rounds': '第 {rounds} / {max} 轮',
-      nativeSection: '原生策略',
+      nativeSection: 'DSH 续跑策略',
       nativeDefaultLabel: '默认轮数上限',
-      nativeDefaultHint: '新目标未指定上限时使用；已有目标保持原值。',
+      nativeDefaultHint: '新目标未指定上限时使用此值。',
       nativeBlockedLabel: '报告受阻门槛',
-      nativeBlockedHint: 'Agent 执行到此轮数后可报告受阻。',
-      invalidImplementation: '请选择目标实现。',
-      invalidNative: '原生参数必须是正安全整数。',
+      nativeBlockedHint: '达到该轮数后 Agent 可报告受阻。',
+      invalidImplementation: '请选择续跑模式。',
+      invalidNative: '请输入 1 到 9007199254740991 之间的整数。',
       help: '了解设置',
-      implementation: '目标实现',
-      implEnhancedHint: '由 Agent 控制轮数',
-      implNativeHint: '使用宿主轮数策略',
+      implementation: '续跑模式',
+      implementationHint: '切换模式需保存后重启当前 profile。',
+      implEnhancedTag: '本插件驱动',
+      implNativeTag: '宿主原生',
+      implEnhancedFlow: '目标 → 第 1 轮 → 第 2 轮 → … → 上限/完成/受阻',
+      implNativeFlow: '目标 → DSH 原生驱动 → 宿主轮数策略',
+      implEnhancedBullet1: '每轮自动推进',
+      implEnhancedBullet2: '达到上限/完成/受阻时停止',
+      implEnhancedBullet3: '支持 Agent/无上限/固定轮数',
+      implNativeBullet1: '使用原生 goal 服务与工具',
+      implNativeBullet2: '本页只设置原生默认轮数与受阻门槛',
+      implNativeBullet3: '切换后需重载',
       replaceNative: '替换原生 Goal',
       replaceHint: '关闭后由宿主原生 Goal 管理目标与续跑。保存后重启当前 profile。',
       reloadRequired: '重启 profile 后生效',
-      runtimeBetter: '增强',
-      runtimeNative: '原生',
+      runtimeBetter: '自定义续跑',
+      runtimeNative: 'DSH 默认',
       runtimeLoading: '正在检查运行状态…',
       runtimeUnavailable: '无法读取运行状态。',
+      refreshRuntime: '刷新运行状态',
       nativeDependency: '原生模式使用宿主的轮数策略。',
       runtimeActive: '当前运行：{implementation}',
       roundsSection: '自动续跑',
@@ -165,7 +183,7 @@ window.__ModuleLoader__.load({
     const en = {
       summary: 'Goals and continuation',
       waitingForm: 'Loading settings…',
-      noFormHint: 'Check that the plugin settings service is loaded and use a trusted connection.',
+      noFormHint: 'Use a trusted connection to open these settings.',
       loading: 'Loading configuration…',
       unavailable: 'Settings unavailable',
       readonly: 'Read-only',
@@ -176,12 +194,18 @@ window.__ModuleLoader__.load({
       saveFailed: 'Save failed: ',
       reset: 'Discard',
       modeLabel: 'Round policy',
-      modeAgent: 'Agent decides',
-      modeAgentHint: 'The agent can set a cap; defaults to unlimited.',
+      roundDefinition: 'A round is one automatic continuation of the goal.',
+      modeAgent: 'Agent-decided',
+      modeAgentFlow: 'Goal → Agent decides → cap',
+      modeAgentStop: 'Stops at the agent-set cap, on completion, or when blocked.',
       modeUnlimited: 'Unlimited',
-      modeUnlimitedHint: 'Continue until complete or paused.',
+      modeUnlimitedFlow: 'Goal → Round 1 → Round 2 → …',
+      modeUnlimitedStop: 'Stops only on completion or when blocked.',
       modeFixed: 'Fixed rounds',
-      modeFixedHint: 'Limit each goal to a fixed number of rounds.',
+      modeFixedFlow: 'Goal → Round 1 → … → Round N',
+      modeFixedStop: 'Stops after round N.',
+      modeStop: 'Stop condition',
+      roundSpan: 'Round 1 → … → Round {rounds}',
       roundLimitLabel: 'Round limit',
       roundLimitHint: 'Automatic continuation stops at the limit.',
       roundLimitUnlimited: 'This value is the compatibility sentinel; the UI renders it as unlimited.',
@@ -193,8 +217,8 @@ window.__ModuleLoader__.load({
       invalidQuestionTimeout: 'The timeout must be -1 or an integer from 1 to 2147483.',
       readonlyNote: 'Read-only: host configuration cannot be written.',
       unavailableNote: 'Not writable: this configuration is unavailable on the current connection.',
-      settingsTitle: 'Goals',
-      settingsIntro: '',
+      settingsTitle: 'Goals and continuation',
+      settingsIntro: 'Manage how goals continue automatically, including rounds and blocked reporting.',
       'phase.active': 'Running',
       'phase.active.disarmed': 'Paused',
       'phase.paused': 'Paused',
@@ -209,24 +233,34 @@ window.__ModuleLoader__.load({
       'action.clear': 'Clear goal',
       'cap.unlimited': 'unlimited',
       'meta.rounds': 'Round {rounds} / {max}',
-      nativeSection: 'Native policy',
+      nativeSection: 'DSH continuation policy',
       nativeDefaultLabel: 'Default round cap',
-      nativeDefaultHint: 'Used when a new goal omits its cap. Existing goals keep theirs.',
+      nativeDefaultHint: 'Used for new goals without an explicit cap.',
       nativeBlockedLabel: 'Minimum rounds to report blocked',
-      nativeBlockedHint: 'The agent can report blocked after this many admitted rounds.',
-      invalidImplementation: 'Choose a goal implementation.',
-      invalidNative: 'Native parameters must be positive safe integers.',
+      nativeBlockedHint: 'The agent may report blocked after this many rounds.',
+      invalidImplementation: 'Choose a continuation mode.',
+      invalidNative: 'Enter a whole number from 1 to 9007199254740991.',
       help: 'About these settings',
-      implementation: 'Implementation',
-      implEnhancedHint: 'Agent-controlled rounds',
-      implNativeHint: 'Host round policy',
+      implementation: 'Continuation mode',
+      implementationHint: 'Save and restart the current profile to switch modes.',
+      implEnhancedTag: 'Plugin-driven',
+      implNativeTag: 'Host-native',
+      implEnhancedFlow: 'Goal → Round 1 → Round 2 → … → limit/complete/blocked',
+      implNativeFlow: 'Goal → DSH native driver → host round policy',
+      implEnhancedBullet1: 'Advances automatically each round',
+      implEnhancedBullet2: 'Stops at the cap, on completion, or when blocked',
+      implEnhancedBullet3: 'Supports agent-set, unlimited, and fixed rounds',
+      implNativeBullet1: 'Uses the native goal service and tools',
+      implNativeBullet2: 'This page sets only the native default cap and blocked threshold',
+      implNativeBullet3: 'Reload required after switching',
       replaceNative: 'Replace native Goal',
       replaceHint: 'When off, the host’s native Goal manages goals and continuation. Save, then restart the profile.',
       reloadRequired: 'Restart the profile to apply',
-      runtimeBetter: 'Enhanced',
-      runtimeNative: 'Native',
+      runtimeBetter: 'Configurable continuation',
+      runtimeNative: 'DSH default',
       runtimeLoading: 'Checking runtime…',
       runtimeUnavailable: 'Runtime status unavailable.',
+      refreshRuntime: 'Refresh runtime status',
       nativeDependency: 'Native mode uses the host’s round policy.',
       runtimeActive: 'Running: {implementation}',
       roundsSection: 'Continuation',
@@ -274,8 +308,9 @@ window.__ModuleLoader__.load({
     }
 
     // Scoped roles inherit the host theme; all controls share the same compact geometry.
-    const GOAL_CSS = `.dbg-dock{--cfg-accent:#3388BB;--cfg-solid:#20709e;--cfg-accent-text:#14587f;--cfg-accent-soft:color-mix(in srgb,var(--cfg-accent) 10%,transparent);--cfg-ink:var(--dsw-alias-label-primary);--cfg-muted:var(--dsw-alias-label-secondary);--cfg-faint:color-mix(in srgb,var(--dsw-alias-label-tertiary) 80%,var(--dsw-alias-label-primary));--cfg-line:var(--dsw-alias-border-l1);--cfg-line-2:var(--dsw-alias-border-l2);--cfg-line-strong:var(--dsw-alias-border-l3);--cfg-base:var(--dsw-alias-bg-layer-1);--cfg-raised:var(--dsw-alias-bg-layer-2);--cfg-overlay:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));--cfg-hover:var(--dsw-alias-interactive-bg-hover);--cfg-danger:var(--dsw-alias-state-error-primary);--cfg-warn:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 60%,var(--dsw-alias-label-primary));--cfg-success:color-mix(in srgb,var(--dsw-alias-state-success-primary) 60%,var(--dsw-alias-label-primary));--cfg-on-solid:#fff;box-sizing:border-box;width:calc(100% - 2 * var(--dsh-composer-side-clearance,12px) - 4 * var(--dsh-composer-dock-inset,2px));max-width:var(--dsh-composer-card-max-width,820px);margin:0 auto;color:var(--cfg-ink);font-size:13px;line-height:20px;container-type:inline-size;container-name:better-goal-dock}
-.dbg-bar{box-sizing:border-box;min-height:40px;border:1px solid var(--cfg-line-2);border-radius:8px;background:var(--cfg-raised);display:flex;align-items:center;gap:8px;padding:4px 6px 4px 12px;position:relative;overflow:hidden}
+    const GOAL_CSS = `.dbg-dock{--cfg-accent:var(--dsw-alias-state-business-primary,#3388bb);--cfg-solid:var(--dsw-alias-button-primary-fill,#20709e);--cfg-accent-text:color-mix(in srgb,var(--cfg-accent) 70%,var(--cfg-ink));--cfg-accent-soft:color-mix(in srgb,var(--cfg-accent) 10%,transparent);--cfg-ink:var(--dsw-alias-label-primary);--cfg-muted:var(--dsw-alias-label-secondary);--cfg-faint:color-mix(in srgb,var(--dsw-alias-label-tertiary) 80%,var(--dsw-alias-label-primary));--cfg-line:var(--dsw-alias-border-l1);--cfg-line-2:var(--dsw-alias-border-l2);--cfg-line-strong:var(--dsw-alias-border-l3);--cfg-base:var(--dsw-alias-bg-layer-1);--cfg-raised:var(--dsw-alias-bg-layer-2);--cfg-overlay:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));--cfg-hover:var(--dsw-alias-interactive-bg-hover);--cfg-danger:color-mix(in srgb,var(--dsw-alias-state-error-primary) 60%,var(--cfg-ink));--cfg-warn:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 60%,var(--dsw-alias-label-primary));--cfg-success:color-mix(in srgb,var(--dsw-alias-state-success-primary) 60%,var(--dsw-alias-label-primary));--cfg-on-solid:var(--dsw-alias-label-primary-foreground,#fff);box-sizing:border-box;width:calc(100% - 2 * var(--dsh-composer-side-clearance,12px) - 4 * var(--dsh-composer-dock-inset,2px));max-width:var(--dsh-composer-card-max-width,820px);margin:0 auto;color:var(--cfg-ink);font-size:13px;line-height:20px;font-variant-numeric:tabular-nums;container-type:inline-size;container-name:better-goal-dock}
+.dbg-bar{box-sizing:border-box;min-height:40px;border:1px solid var(--cfg-line-2);border-radius:8px;background:var(--cfg-raised);display:flex;align-items:center;gap:8px;padding:4px 6px 4px 12px;position:relative}
+.dbg-bar[data-expanded=true]{border-radius:8px 8px 0 0}
 .dbg-goalGlyph{color:var(--cfg-faint);flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px}
 .dbg-goalGlyph[data-state=active]{color:var(--cfg-accent)}
 .dbg-goalGlyph[data-state=paused]{color:var(--cfg-warn)}
@@ -284,28 +319,27 @@ window.__ModuleLoader__.load({
 .dbg-label{flex:none;font-size:11px;line-height:16px;font-weight:500;color:var(--cfg-muted);white-space:nowrap}
 .dbg-goalMain{flex:1;min-width:0;display:flex;align-items:center;gap:10px}
 .dbg-goalStatus{display:flex;align-items:center;gap:8px;flex:none;min-width:0}
-.dbg-objective{min-width:0;flex:1;display:flex;align-items:center;gap:6px;min-height:28px;text-align:left;color:inherit;font:inherit;background:transparent;border:0;border-radius:6px;padding:2px;cursor:pointer}
-.dbg-objectiveText{min-width:0;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px;line-height:20px;font-weight:500;color:var(--cfg-ink)}
+.dbg-objective{min-width:0;flex:1;display:flex;align-items:center;gap:6px;min-height:32px;text-align:left;color:inherit;font:inherit;background:transparent;border:0;border-radius:6px;padding:2px;cursor:pointer}
 .dbg-objective:hover{background:var(--cfg-hover)}
+.dbg-objectiveText{min-width:0;flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;font-size:13px;line-height:20px;font-weight:500;color:var(--cfg-ink)}
 .dbg-chevron{flex:none;display:inline-flex;color:var(--cfg-faint);transition:transform 100ms ease}
 [aria-expanded=true]>.dbg-chevron,.dbg-historyList details[open]>summary>.dbg-chevron{transform:rotate(180deg)}
 .dbg-meta{color:var(--cfg-faint);font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.dbg-roundChip,.dbg-countChip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--cfg-line-2);border-radius:999px;color:var(--cfg-muted);font-size:11px;line-height:18px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.dbg-roundChip{font-family:var(--dsw-font-family-mono,ui-monospace,SFMono-Regular,Menlo,monospace)}
+.dbg-roundChip,.dbg-countChip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--cfg-line-2);border-radius:10px;color:var(--cfg-muted);font-size:11px;line-height:18px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .dbg-error{color:var(--cfg-danger);font-size:12px;line-height:18px;overflow-wrap:anywhere;margin:0}
 .dbg-editBar{display:flex;flex-direction:column;align-items:stretch;gap:6px;padding:10px;border:1px solid var(--cfg-line-2);border-radius:8px;background:var(--cfg-raised);overflow:visible}
 .dbg-editLabel{display:block;color:var(--cfg-muted);font-size:12px;line-height:18px}
-.dbg-editInput{box-sizing:border-box;resize:vertical;width:100%;min-height:84px;max-height:220px;padding:8px 10px;border:1px solid var(--cfg-line-2);border-radius:8px;background:var(--cfg-base);color:inherit;font:inherit;line-height:20px}
-.dbg-editFooter{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:2px}
+.dbg-editInput{box-sizing:border-box;resize:vertical;width:100%;min-height:84px;max-height:220px;padding:8px 10px;border:1px solid var(--cfg-line-2);border-radius:8px;background:var(--cfg-raised);color:inherit;font:inherit;line-height:20px}
+.dbg-editFooter{display:flex;flex-wrap:wrap;align-items:center;justify-content:flex-end;gap:8px;margin-top:2px}
+.dbg-editHint{margin-right:auto;color:var(--cfg-faint);font-size:12px;line-height:18px}
 .dbg-actions{flex:none;display:flex;align-items:center;gap:2px}
-.dbg-iconBtn{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;padding:0;border:0;border-radius:6px;background:transparent;color:var(--cfg-muted);cursor:pointer}
+.dbg-iconBtn{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;border:0;border-radius:8px;background:transparent;color:var(--cfg-muted);cursor:pointer}
 .dbg-iconBtn:hover:not(:disabled){background:var(--cfg-hover);color:var(--cfg-ink)}
 .dbg-iconBtn[data-danger=true]:hover:not(:disabled),.dbg-iconBtn[data-armed=true]{color:var(--cfg-danger)}
 .dbg-iconBtn:disabled{opacity:.4;cursor:not-allowed}
-.dbg-progressTrack{position:absolute;bottom:0;left:0;right:0;height:1px;background:var(--cfg-line);pointer-events:none}
-.dbg-progress{display:block;height:1px;background:var(--cfg-accent)}
+.dbg-progressTrack{position:absolute;bottom:1px;left:1px;right:1px;height:2px;border-radius:0 0 6px 6px;background:var(--cfg-line);pointer-events:none;overflow:hidden}
+.dbg-progress{display:block;height:100%;background:var(--cfg-accent)}
 .dbg-details{box-sizing:border-box;border:1px solid var(--cfg-line-2);border-top:0;border-radius:0 0 8px 8px;background:var(--cfg-raised);margin-top:0;padding:10px 12px}
-.dbg-bar[data-expanded=true]{border-radius:8px 8px 0 0}
 .dbg-fullObjective{margin:0;white-space:pre-wrap;overflow-wrap:anywhere;max-height:200px;overflow:auto;font-size:13px;line-height:20px}
 .dbg-history{box-sizing:border-box;border:1px solid var(--cfg-line-2);border-radius:10px;background:var(--cfg-raised);margin-top:6px;padding:12px}
 .dbg-historyHead{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:13px;line-height:20px;font-weight:500}
@@ -313,34 +347,33 @@ window.__ModuleLoader__.load({
 .dbg-historyHead .dbg-countChip{margin-left:auto}
 .dbg-historyTools{display:flex;align-items:center;gap:8px;margin-bottom:8px}
 .dbg-historyTools>.dbg-choice{width:140px;flex:none}
-.dbg-search{appearance:none;box-sizing:border-box;min-width:0;height:32px;padding:0 10px;border:1px solid var(--cfg-line-2);border-radius:8px;color:inherit;background:var(--cfg-base);font:inherit;flex:1;width:100%}
+.dbg-search{appearance:none;box-sizing:border-box;min-width:0;height:32px;padding:0 10px;border:1px solid var(--cfg-line-2);border-radius:8px;color:inherit;background:var(--cfg-raised);font:inherit;flex:1;width:100%}
 .dbg-search::-webkit-search-cancel-button{appearance:none}
-.dbg-historyList{list-style:none;padding:0;margin:0;max-height:320px;overflow:auto;scrollbar-width:thin;scrollbar-gutter:stable}
+.dbg-historyList{list-style:none;padding:0;margin:0;max-height:320px;overflow:auto;scrollbar-width:thin;scrollbar-gutter:stable;display:flex;flex-direction:column;gap:2px}
 .dbg-historyList>li{content-visibility:auto;contain-intrinsic-size:auto 56px}
-.dbg-historyList>li+li{border-top:1px solid var(--cfg-line)}
-.dbg-historyList summary{cursor:pointer;display:flex;align-items:center;gap:8px;min-height:40px;padding:6px 4px;list-style:none;border-radius:6px}
-.dbg-historyList summary::-webkit-details-marker{display:none}
+.dbg-historyList summary{cursor:pointer;display:flex;align-items:center;gap:8px;min-height:36px;padding:5px 6px;list-style:none;border-radius:6px}
+.dbg-historyList summary::-webkit-details-marker{display:none}.dbg-historyList summary::marker{content:''}
 .dbg-historyList summary:hover{background:var(--cfg-hover)}
 .dbg-historyIdentity{flex:1;min-width:0;display:flex;flex-direction:column;gap:4px}
 .dbg-historyName{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;line-height:20px;font-weight:500}
 .dbg-historyFacts{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
-.dbg-historyState{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--cfg-line-2);border-radius:999px;color:var(--cfg-muted);background:var(--cfg-base);font-size:11px;line-height:18px}
+.dbg-historyState{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--cfg-line-2);border-radius:10px;color:var(--cfg-muted);background:var(--cfg-base);font-size:11px;line-height:18px}
 .dbg-historyState[data-phase=active]{color:var(--cfg-accent-text);border-color:color-mix(in srgb,var(--cfg-accent) 30%,transparent);background:var(--cfg-accent-soft)}
 .dbg-historyState[data-phase=blocked]{color:var(--cfg-danger);border-color:color-mix(in srgb,var(--cfg-danger) 30%,transparent)}
 .dbg-historyMeta{color:var(--cfg-faint);font-size:11px;line-height:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.dbg-historyBody{padding:4px 4px 10px;border-top:1px solid var(--cfg-line);margin-top:4px}
-.dbg-historyBody time{display:block;margin-top:8px}
+.dbg-historyBody{padding:4px 6px 8px;margin:0}
+.dbg-historyBody time{display:block;margin-top:8px;white-space:normal;overflow-wrap:anywhere}
 .dbg-historyEmpty{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;padding:12px 0;color:var(--cfg-faint);font-size:12px;line-height:18px}
 .dbg-choice{position:relative;min-width:0}
-.dbg-choiceTrigger{appearance:none;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0;height:32px;padding:0 10px;border:1px solid var(--cfg-line-2);border-radius:8px;background:var(--cfg-base);color:var(--cfg-ink);font:inherit;text-align:left;cursor:pointer}
+.dbg-choiceTrigger{appearance:none;box-sizing:border-box;display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-width:0;height:32px;padding:0 10px;border:1px solid var(--cfg-line-2);border-radius:8px;background:var(--cfg-raised);color:var(--cfg-ink);font:inherit;text-align:left;cursor:pointer}
 .dbg-choiceTrigger>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dbg-choiceTrigger:after{content:'';flex:none;width:6px;height:6px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:translateY(-2px) rotate(45deg);transition:transform 100ms ease}
 .dbg-choiceTrigger[aria-expanded=true]:after{transform:translateY(2px) rotate(225deg)}
 .dbg-choiceTrigger:hover:not(:disabled){border-color:var(--cfg-line-strong)}
-.dbg-choiceTrigger[aria-expanded=true]{border-color:var(--cfg-accent);box-shadow:0 0 0 2px var(--cfg-accent-soft)}
+.dbg-choiceTrigger[aria-expanded=true]{border-color:var(--cfg-accent);background:var(--cfg-accent-soft)}
 .dbg-choiceList{position:absolute;inset:calc(100% + 4px) 0 auto;z-index:40;box-sizing:border-box;min-width:100%;max-height:224px;overflow:auto;margin:0;padding:4px;list-style:none;border:1px solid var(--cfg-line-strong);border-radius:10px;background:var(--cfg-overlay);color:var(--cfg-ink);scrollbar-width:thin;box-shadow:0 12px 32px -12px rgb(0 0 0/.35)}
 .dbg-choice[data-side=above] .dbg-choiceList{inset:auto 0 calc(100% + 4px)}
-.dbg-choiceOption{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:30px;padding:0 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.dbg-choiceOption{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;padding:0 8px;border-radius:6px;cursor:pointer;white-space:nowrap}
 .dbg-choiceOption[data-active=true]{background:var(--cfg-hover)}
 .dbg-choiceOption[aria-selected=true]{color:var(--cfg-accent-text);font-weight:500;background:var(--cfg-accent-soft)}
 .dbg-choiceOption svg{flex:none}
@@ -351,50 +384,50 @@ window.__ModuleLoader__.load({
 .dbg-button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:8px;font:inherit;font-size:13px;line-height:20px;font-weight:500;color:var(--cfg-ink);background:transparent;cursor:pointer}
 .dbg-button:hover:not(:disabled){background:var(--cfg-hover)}
 .dbg-button[data-variant=primary]{background:var(--cfg-solid);color:var(--cfg-on-solid);min-width:80px}
-.dbg-button[data-variant=primary]:hover:not(:disabled){background:color-mix(in srgb,var(--cfg-solid) 88%,black)}
+.dbg-button[data-variant=primary]:hover:not(:disabled){background:color-mix(in srgb,var(--cfg-solid) 88%,var(--cfg-on-solid))}
 .dbg-button[data-variant=outline]{border-color:var(--cfg-line-2)}
 .dbg-spinner{box-sizing:border-box;display:inline-block;flex:none;width:12px;height:12px;border:1px solid currentColor;border-right-color:transparent;border-radius:50%;animation:dbg-spin .7s linear infinite}@keyframes dbg-spin{to{transform:rotate(360deg)}}
-@media(max-width:640px){.dbg-historyTools{flex-wrap:wrap}.dbg-historyTools>.dbg-choice{width:auto;flex:1}.dbg-bar{gap:5px}.dbg-meta{max-width:90px;overflow:hidden;text-overflow:ellipsis}}
-@container better-goal-dock (max-width:540px){.dbg-bar{flex-wrap:wrap}.dbg-goalMain{flex-basis:100%}.dbg-actions{margin-left:auto}}
+@media(max-width:640px){.dbg-dock :is(.dbg-iconBtn,.dbg-button,.dbg-objective,.dbg-search,.dbg-choiceTrigger,.dbg-choiceOption,.dbg-historyList summary){min-height:44px}.dbg-iconBtn{width:44px}.dbg-historyTools{flex-direction:column;align-items:stretch}.dbg-historyTools>.dbg-choice{width:100%}.dbg-historyName{white-space:normal;overflow-wrap:anywhere}.dbg-bar{gap:6px}}
+@media(pointer:coarse){.dbg-dock :is(.dbg-iconBtn,.dbg-button,.dbg-objective,.dbg-search,.dbg-choiceTrigger,.dbg-choiceOption,.dbg-historyList summary){min-height:44px}.dbg-iconBtn{width:44px}}
+@container better-goal-dock (max-width:540px){.dbg-bar{flex-wrap:wrap}.dbg-goalMain{flex-basis:100%}.dbg-actions{margin-left:auto}.dbg-dock :is(.dbg-iconBtn,.dbg-button,.dbg-objective,.dbg-search,.dbg-choiceTrigger,.dbg-choiceOption,.dbg-historyList summary){min-height:44px}.dbg-iconBtn{width:44px}.dbg-historyTools{flex-direction:column;align-items:stretch}.dbg-historyTools>.dbg-choice{width:100%}.dbg-historyName{white-space:normal;overflow-wrap:anywhere}}
 @container better-goal-dock (max-width:360px){.dbg-goalMain{align-items:stretch;flex-direction:column;gap:2px}.dbg-goalStatus{flex-wrap:wrap}}
-[data-ds-dark-theme] .dbg-dock{--cfg-accent:#4eb0e8;--cfg-solid:#4eb0e8;--cfg-on-solid:#0e1014;--cfg-accent-text:#6fc0ee;--cfg-accent-soft:color-mix(in srgb,var(--cfg-accent) 14%,transparent)}
+[data-ds-dark-theme] .dbg-dock{--cfg-accent:var(--dsw-alias-state-business-primary,#4eb0e8);--cfg-solid:var(--dsw-alias-button-primary-fill,#4eb0e8);--cfg-on-solid:var(--dsw-alias-label-primary-foreground,#0e1014);--cfg-accent-soft:color-mix(in srgb,var(--cfg-accent) 14%,transparent)}
 @media(prefers-reduced-motion:reduce){.dbg-dock *{animation:none!important;transition:none!important}}`
 
-    const SETTINGS_CSS = `.dbg-cfg{--cfg-accent:#3388BB;--cfg-solid:#20709e;--cfg-accent-text:#14587f;--cfg-accent-soft:color-mix(in srgb,var(--cfg-accent) 10%,transparent);--cfg-ink:var(--dsw-alias-label-primary);--cfg-muted:var(--dsw-alias-label-secondary);--cfg-faint:color-mix(in srgb,var(--dsw-alias-label-tertiary) 80%,var(--dsw-alias-label-primary));--cfg-line:var(--dsw-alias-border-l1);--cfg-line-2:var(--dsw-alias-border-l2);--cfg-line-strong:var(--dsw-alias-border-l3);--cfg-base:var(--dsw-alias-bg-layer-1);--cfg-raised:var(--dsw-alias-bg-layer-2);--cfg-overlay:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));--cfg-hover:var(--dsw-alias-interactive-bg-hover);--cfg-danger:var(--dsw-alias-state-error-primary);--cfg-on-solid:#fff;display:flex;flex-direction:column;gap:24px;max-width:920px;min-width:0;margin:0 auto;width:100%;flex:1;min-height:0;container-type:inline-size;container-name:better-goal-settings;font-size:13px;line-height:20px;color:var(--cfg-ink);font-variant-numeric:tabular-nums}
+    const SETTINGS_CSS = `.dbg-cfg{--cfg-accent:var(--dsw-alias-state-business-primary,#3388bb);--cfg-solid:var(--dsw-alias-button-primary-fill,#20709e);--cfg-accent-text:color-mix(in srgb,var(--cfg-accent) 70%,var(--cfg-ink));--cfg-accent-soft:color-mix(in srgb,var(--cfg-accent) 10%,transparent);--cfg-ink:var(--dsw-alias-label-primary);--cfg-muted:var(--dsw-alias-label-secondary);--cfg-faint:color-mix(in srgb,var(--dsw-alias-label-tertiary) 80%,var(--dsw-alias-label-primary));--cfg-line:var(--dsw-alias-border-l1);--cfg-line-2:var(--dsw-alias-border-l2);--cfg-line-strong:var(--dsw-alias-border-l3);--cfg-base:var(--dsw-alias-bg-layer-1);--cfg-raised:var(--dsw-alias-bg-layer-2);--cfg-overlay:var(--dsw-alias-bg-layer-3,var(--dsw-alias-bg-layer-2));--cfg-hover:var(--dsw-alias-interactive-bg-hover);--cfg-danger:color-mix(in srgb,var(--dsw-alias-state-error-primary) 60%,var(--cfg-ink));--cfg-warn:color-mix(in srgb,var(--dsw-alias-state-warn-primary) 60%,var(--cfg-ink));--cfg-success:color-mix(in srgb,var(--dsw-alias-state-success-primary) 60%,var(--cfg-ink));--cfg-on-solid:var(--dsw-alias-label-primary-foreground,#fff);display:flex;flex-direction:column;gap:20px;max-width:960px;min-width:0;margin:0 auto;width:100%;flex:1;min-height:0;container-type:inline-size;container-name:better-goal-settings;font-size:13px;line-height:20px;color:var(--cfg-ink);font-variant-numeric:tabular-nums}
 .dbg-cfg *{box-sizing:border-box}
+.dbg-pageHead{display:flex;flex-direction:column;gap:4px;min-width:0}
 .dbg-title{margin:0;font-size:20px;line-height:28px;font-weight:500;letter-spacing:-.01em}
+.dbg-pagePurpose{margin:0;color:var(--cfg-muted);font-size:13px;line-height:20px}
 .dbg-note{margin:0;padding:6px 10px;border:1px solid var(--cfg-line-2);border-radius:6px;background:var(--cfg-raised);color:var(--cfg-muted);font-size:12px;line-height:18px}
 .dbg-note[data-tone=error],.dbg-status[data-tone=error],.dbg-fieldError{color:var(--cfg-danger)}
 .dbg-note[data-tone=warn]{color:var(--cfg-warn)}
-.dbg-section{display:flex;flex-direction:column;gap:8px;min-width:0;border:0;border-top:1px solid var(--cfg-line-2);padding:12px 0 0;margin:0}
-.dbg-section:first-of-type{border-top:0;padding-top:0}
-.dbg-section>legend{display:block;width:100%;margin:0;padding:0 0 6px;border-bottom:1px solid var(--cfg-line);color:var(--cfg-faint);font-size:12px;line-height:18px;font-weight:500;letter-spacing:.02em}
+.dbg-section{display:flex;flex-direction:column;gap:10px;min-width:0;border:0;padding:0;margin:0}
+.dbg-section>legend{display:block;width:100%;margin:0;padding:0 0 8px;border-bottom:1px solid var(--cfg-line);color:var(--cfg-faint);font-size:12px;line-height:18px;font-weight:500;letter-spacing:.02em}
+.dbg-hint{margin:0;color:var(--cfg-faint);font-size:12px;line-height:18px}
 .dbg-modeCards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-.dbg-modeCard{position:relative;display:flex;align-items:flex-start;gap:10px;min-width:0;padding:12px;border:1px solid var(--cfg-line-2);border-radius:10px;background:var(--cfg-raised);cursor:pointer;transition:background-color 140ms ease,border-color 140ms ease}
-.dbg-modeCard:hover{background:var(--cfg-hover)}.dbg-modeCard[data-disabled=true]{opacity:.4;cursor:not-allowed}
+.dbg-optionCards{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.dbg-modeCard{position:relative;display:flex;flex-direction:column;gap:10px;min-width:0;padding:14px;border:1px solid var(--cfg-line-2);border-radius:10px;background:var(--cfg-raised);cursor:pointer;transition:background-color 140ms ease,border-color 140ms ease}
+.dbg-modeCard:hover{background:var(--cfg-hover)}
+.dbg-modeCard[data-disabled=true]{opacity:.4;cursor:not-allowed}
 .dbg-modeCard[data-checked=true]{border-color:var(--cfg-accent);background:var(--cfg-accent-soft)}
 .dbg-modeCard:has(.dbg-segmentInput:focus-visible){outline:2px solid var(--cfg-accent);outline-offset:2px}
+.dbg-modeCardHead{display:flex;align-items:center;gap:8px;min-width:0}
 .dbg-modeCardGlyph{display:inline-flex;align-items:center;justify-content:center;flex:none;width:28px;height:28px;border:1px solid var(--cfg-line-2);border-radius:8px;background:var(--cfg-base);color:var(--cfg-muted)}
 .dbg-modeCard[data-checked=true] .dbg-modeCardGlyph{border-color:color-mix(in srgb,var(--cfg-accent) 30%,transparent);color:var(--cfg-accent-text)}
-.dbg-modeCardText{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
-.dbg-modeCardTitle{font-size:13px;line-height:20px;font-weight:500;color:var(--cfg-ink)}
-.dbg-modeCardDesc{font-size:12px;line-height:18px;color:var(--cfg-faint)}
-.dbg-modeCardCheck{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:20px;color:var(--cfg-accent)}
+.dbg-modeCardTitle{min-width:0;font-size:13px;line-height:20px;font-weight:500;color:var(--cfg-ink)}
+.dbg-modeCardCheck{flex:none;display:inline-flex;align-items:center;justify-content:center;width:16px;height:20px;margin-left:auto;color:var(--cfg-accent)}
+.dbg-modeCardFlow{display:block;padding:7px 9px;border:1px solid var(--cfg-line);border-radius:6px;background:var(--cfg-base);color:var(--cfg-muted);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+.dbg-modeCardBullets{display:flex;flex-direction:column;gap:4px;margin:0;padding:0;color:var(--cfg-muted);font-size:12px;line-height:18px}
+.dbg-modeCardBullet{display:block;padding-left:12px;position:relative}
+.dbg-modeCardBullet:before{content:'·';position:absolute;left:2px;color:var(--cfg-faint)}
+.dbg-modeCardStop{display:block;color:var(--cfg-muted);font-size:12px;line-height:18px}
+.dbg-modeCardStopLabel{color:var(--cfg-faint)}
 .dbg-segmentInput{appearance:none;position:absolute;width:1px;height:1px;opacity:0;margin:0}
-.dbg-segmented{display:flex;align-self:flex-start;max-width:100%;gap:2px;padding:2px;border:1px solid var(--cfg-line-2);border-radius:8px;background:color-mix(in srgb,var(--cfg-ink) 4%,var(--cfg-base))}
-.dbg-segment{position:relative;flex:1;min-width:0;cursor:pointer}
-.dbg-segment>span{display:flex;align-items:center;justify-content:center;min-height:28px;padding:0 12px;border:1px solid transparent;border-radius:6px;color:var(--cfg-muted);white-space:nowrap;font-size:13px}
-.dbg-segmentInput:checked+span{color:var(--cfg-accent-text);background:var(--cfg-raised);border-color:var(--cfg-line-2);font-weight:500}
-.dbg-segment:hover .dbg-segmentInput:not(:disabled)+span{background:var(--cfg-hover)}
-.dbg-segmentInput:focus-visible+span{outline:2px solid var(--cfg-accent);outline-offset:2px}
-.dbg-segmentInput:disabled+span{opacity:.4;cursor:not-allowed}
-.dbg-roundPolicy{display:flex;align-items:center;gap:8px;min-height:24px;margin-top:2px;color:var(--cfg-faint);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums}
-.dbg-roundStart,.dbg-roundCap{display:inline-flex;align-items:center;justify-content:center;min-width:24px;height:20px;padding:0 7px;border:1px solid var(--cfg-line-2);border-radius:999px;background:var(--cfg-base);color:var(--cfg-muted);font-size:11px;line-height:18px}
-.dbg-roundCap[data-mode=fixed],.dbg-roundCap[data-mode=unlimited]{color:var(--cfg-accent-text);border-color:color-mix(in srgb,var(--cfg-accent) 30%,transparent)}
-.dbg-roundRail{position:relative;flex:1;height:1px;background:var(--cfg-line-strong)}
-.dbg-roundPolicy[data-mode=unlimited] .dbg-roundRail{background:var(--cfg-accent)}
-.dbg-field{display:grid;grid-template-columns:minmax(120px,180px) minmax(0,1fr);gap:8px 20px;padding:10px 0;align-items:start;border-bottom:1px solid var(--cfg-line)}
-.dbg-field:last-child{border-bottom:0}
+.dbg-chip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--cfg-line-2);border-radius:10px;color:var(--cfg-muted);font-size:11px;line-height:18px;white-space:nowrap}
+.dbg-chip[data-tone=accent]{color:var(--cfg-accent-text);border-color:color-mix(in srgb,var(--cfg-accent) 30%,transparent);background:var(--cfg-accent-soft)}
+.dbg-roundSpan{display:inline-flex;align-items:center;align-self:flex-start;min-height:28px;padding:0 10px;border:1px solid var(--cfg-line-2);border-radius:6px;background:var(--cfg-base);color:var(--cfg-muted);font-size:12px;line-height:18px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow-wrap:anywhere}
+.dbg-field{display:grid;grid-template-columns:minmax(120px,180px) minmax(0,1fr);gap:8px 20px;padding:4px 0;align-items:start}
 .dbg-fieldHeading{display:flex;align-items:center;gap:6px;flex-wrap:wrap;min-width:0;padding-top:4px}
 .dbg-fieldLabel{font-size:13px;line-height:20px;font-weight:500;color:var(--cfg-ink)}
 .dbg-fieldBody{display:flex;flex-direction:column;gap:6px;min-width:0}
@@ -405,41 +438,38 @@ window.__ModuleLoader__.load({
 .dbg-input:hover:not(:disabled){border-color:var(--cfg-line-strong)}
 .dbg-input[aria-invalid=true]{border-color:var(--cfg-danger)}
 .dbg-input:focus-visible{outline:2px solid var(--cfg-accent);outline-offset:2px}
+.dbg-iconBtn{display:inline-flex;align-items:center;justify-content:center;flex:none;width:32px;height:32px;padding:0;border:1px solid transparent;border-radius:8px;background:transparent;color:var(--cfg-muted);cursor:pointer}
+.dbg-iconBtn:hover:not(:disabled){background:var(--cfg-hover);color:var(--cfg-ink)}
+.dbg-iconBtn:disabled{opacity:.4;cursor:not-allowed}
 .dbg-help{margin:0;font-size:12px;line-height:18px}
-.dbg-help>summary{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;padding:0;border-radius:999px;color:var(--cfg-faint);cursor:pointer;list-style:none}
-.dbg-help>summary::-webkit-details-marker{display:none}
+.dbg-help>summary{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;padding:0;border-radius:6px;color:var(--cfg-faint);cursor:pointer;list-style:none}
+.dbg-help>summary::-webkit-details-marker{display:none}.dbg-help>summary::marker{content:''}
 .dbg-help>summary:hover,.dbg-help[open]>summary{background:var(--cfg-hover);color:var(--cfg-ink)}
-.dbg-help>p{margin:6px 0 0;max-width:64ch;color:var(--cfg-muted);font-size:12px;line-height:18px;overflow-wrap:anywhere}
-.dbg-helpText>summary{width:auto;height:auto;padding:4px 8px;border-radius:6px;color:var(--cfg-muted);font-size:12px}
-.dbg-info>summary:before{display:none}
-.dbg-advanced{border-top:1px solid var(--cfg-line-2);margin-top:4px;padding-top:4px}
-.dbg-advanced>summary{display:flex;align-items:center;gap:8px;min-height:32px;padding:0;list-style:none;cursor:pointer;font-size:13px;line-height:20px;font-weight:500;color:var(--cfg-ink)}
-.dbg-advanced>summary::-webkit-details-marker{display:none}
-.dbg-advanced>summary:before{content:'';flex:none;width:5px;height:5px;border-right:1px solid currentColor;border-bottom:1px solid currentColor;transform:rotate(-45deg);margin:0 4px}
-.dbg-advanced[open]>summary:before{transform:translateY(-2px) rotate(45deg)}
-.dbg-advancedCount{margin-left:auto;color:var(--cfg-faint);font-size:12px;line-height:18px;font-weight:400}
-.dbg-advanced[data-invalid=true]>summary{color:var(--cfg-danger)}.dbg-field + .dbg-advanced{border-top:0;margin-top:0;padding-top:0}
-.dbg-runtime{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:32px;padding:8px 0;color:var(--cfg-muted);font-size:12px;line-height:18px}
+.dbg-helpText>summary{width:auto;height:auto;min-height:32px;padding:4px 8px;border-radius:6px;color:var(--cfg-muted);font-size:12px;line-height:18px}
+.dbg-helpBody{display:flex;flex-direction:column;gap:6px;margin-top:6px;max-width:64ch}
+.dbg-helpBody p{margin:0;color:var(--cfg-muted);font-size:12px;line-height:18px;overflow-wrap:anywhere}
+.dbg-runtime{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-height:36px;padding:8px 10px;border:1px solid var(--cfg-line-2);border-radius:8px;background:var(--cfg-base);color:var(--cfg-muted);font-size:12px;line-height:18px}
 .dbg-runtimeDot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--cfg-muted)}
 .dbg-runtimeDot[data-tone=active]{background:var(--cfg-accent)}
-.dbg-runtimeDot[data-tone=warn]{background:var(--cfg-warn)}
 .dbg-runtimeDot[data-tone=error]{background:var(--cfg-danger)}
 .dbg-runtimeLabel{margin:0;color:var(--cfg-ink);font-size:13px;line-height:20px}
-.dbg-chip{display:inline-flex;align-items:center;height:20px;padding:0 7px;border:1px solid var(--cfg-line-2);border-radius:999px;color:var(--cfg-muted);font-size:11px;line-height:18px;white-space:nowrap}
-.dbg-chip[data-tone=accent]{color:var(--cfg-accent-text);border-color:color-mix(in srgb,var(--cfg-accent) 30%,transparent);background:var(--cfg-accent-soft)}
+.dbg-runtimeRefresh{margin-left:auto}
 .dbg-footer{position:sticky;bottom:0;z-index:2;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--cfg-line-2);background:var(--cfg-base);margin-top:auto}
 .dbg-status{flex:1;min-width:140px;margin:0;color:var(--cfg-faint);font-size:12px;line-height:18px;overflow-wrap:anywhere}
-.dbg-status[data-tone=ok]{color:var(--cfg-success)}.dbg-status[data-tone=warn]{color:var(--cfg-warn)}
+.dbg-status[data-tone=ok]{color:var(--cfg-success)}
+.dbg-status[data-tone=warn]{color:var(--cfg-warn)}
 .dbg-button{box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border:1px solid transparent;border-radius:8px;font:inherit;font-size:13px;line-height:20px;font-weight:500;color:var(--cfg-ink);background:transparent;cursor:pointer}
 .dbg-button:hover:not(:disabled){background:var(--cfg-hover)}
 .dbg-button[data-variant=primary]{background:var(--cfg-solid);color:var(--cfg-on-solid);min-width:80px}
-.dbg-button[data-variant=primary]:hover:not(:disabled){background:color-mix(in srgb,var(--cfg-solid) 88%,black)}
+.dbg-button[data-variant=primary]:hover:not(:disabled){background:color-mix(in srgb,var(--cfg-solid) 88%,var(--cfg-on-solid))}
 .dbg-button[data-variant=outline]{border-color:var(--cfg-line-2)}
 .dbg-spinner{box-sizing:border-box;display:inline-block;flex:none;width:12px;height:12px;border:1px solid currentColor;border-right-color:transparent;border-radius:50%;animation:dbg-spin .7s linear infinite}@keyframes dbg-spin{to{transform:rotate(360deg)}}
-@container better-goal-settings (max-width:540px){.dbg-modeCards{grid-template-columns:1fr}.dbg-field{grid-template-columns:minmax(0,1fr);gap:6px}.dbg-fieldHeading{padding-top:0}.dbg-segmented{width:100%;align-self:stretch}.dbg-segment>span{padding:0 6px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dbg-footer .dbg-status{flex-basis:100%}}
-@media(max-width:640px){.dbg-title{font-size:18px;line-height:26px}.dbg-cfg{gap:20px}.dbg-modeCards{grid-template-columns:1fr}.dbg-field{grid-template-columns:minmax(0,1fr);gap:6px}.dbg-fieldHeading{padding-top:0}.dbg-segmented{width:100%;align-self:stretch}.dbg-segment>span{padding:0 6px;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dbg-footer .dbg-status{flex-basis:100%}}
-[data-ds-dark-theme] .dbg-cfg{--cfg-accent:#4eb0e8;--cfg-solid:#4eb0e8;--cfg-on-solid:#0e1014;--cfg-accent-text:#6fc0ee;--cfg-accent-soft:color-mix(in srgb,var(--cfg-accent) 14%,transparent)}
-@media(prefers-reduced-motion:reduce){.dbg-cfg *{animation:none!important;transition:none!important}}`
+@container better-goal-settings (max-width:640px){.dbg-modeCards,.dbg-optionCards{grid-template-columns:1fr}.dbg-field{grid-template-columns:minmax(0,1fr);gap:6px}.dbg-fieldHeading{padding-top:0}.dbg-footer .dbg-status{flex-basis:100%}.dbg-cfg :is(.dbg-input,.dbg-button,.dbg-iconBtn,.dbg-help>summary,.dbg-helpText>summary){min-height:44px}.dbg-cfg .dbg-iconBtn{width:44px}}
+@media(max-width:640px){.dbg-modeCards,.dbg-optionCards{grid-template-columns:1fr}.dbg-field{grid-template-columns:minmax(0,1fr);gap:6px}.dbg-fieldHeading{padding-top:0}.dbg-footer .dbg-status{flex-basis:100%}.dbg-cfg :is(.dbg-input,.dbg-button,.dbg-iconBtn,.dbg-help>summary,.dbg-helpText>summary){min-height:44px}.dbg-cfg .dbg-iconBtn{width:44px}}
+@media(pointer:coarse){.dbg-cfg :is(.dbg-input,.dbg-button,.dbg-iconBtn,.dbg-help>summary,.dbg-helpText>summary){min-height:44px}.dbg-cfg .dbg-iconBtn{width:44px}}
+[data-ds-dark-theme] .dbg-cfg{--cfg-accent:var(--dsw-alias-state-business-primary,#4eb0e8);--cfg-solid:var(--dsw-alias-button-primary-fill,#4eb0e8);--cfg-on-solid:var(--dsw-alias-label-primary-foreground,#0e1014);--cfg-accent-soft:color-mix(in srgb,var(--cfg-accent) 14%,transparent)}
+@media(prefers-reduced-motion:reduce){.dbg-cfg *{animation:none!important;transition:none!important}}
+`
 
 
     // ── Icons (inline SVG keeps this closure dependency-free) ──────────────
@@ -467,6 +497,10 @@ window.__ModuleLoader__.load({
         h('rect', { key: 'frame', x: 2.5, y: 2.5, width: 11, height: 11, rx: 2, stroke: 'currentColor', strokeWidth: 1.4 }),
         h('path', { key: 'cross', d: 'M5.5 8h5M8 5.5v5', stroke: 'currentColor', strokeWidth: 1.4, strokeLinecap: 'round' }),
       ])
+    }
+
+    function IconRefresh() {
+      return iconSvg(h('path', { d: 'M13 8a5 5 0 1 1-1.6-3.7M13 2.5V6h-3.5', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }))
     }
 
     function IconPause() {
@@ -1013,7 +1047,7 @@ window.__ModuleLoader__.load({
 
       return h('div', { className: 'dbg-dock', 'data-goal-bar': 'dsh-better-goal' },
         h('style', { 'data-plugin-css': STYLE_GOAL }, GOAL_CSS),
-        h('div', { className: 'dbg-bar', title, 'data-running': showPause, 'data-expanded': expanded, 'aria-busy': pending || undefined },
+        h('div', { className: 'dbg-bar', title, 'data-running': showPause, 'data-state': visualState, 'data-expanded': expanded, 'aria-busy': pending || undefined },
           h('div', { className: 'dbg-goalMain' },
             h('div', { className: 'dbg-goalStatus' },
               h('span', { className: 'dbg-goalGlyph', 'data-state': visualState },
@@ -1237,6 +1271,38 @@ window.__ModuleLoader__.load({
       return ops
     }
 
+    /**
+     * One radiogroup keyboard contract for visual choice cards: arrows move by
+     * one (wrapping), Home/End jump to the edges, Space/Enter choose the focused
+     * option. The cards keep the native radio inputs as the single source of
+     * truth, so assistive technology still sees a real radiogroup.
+     */
+    function radioCardKeyDown(event, values, current, choose, refs) {
+      if (event.defaultPrevented || event.nativeEvent?.isComposing || event.target?.disabled) return
+      const key = event.key
+      const activate = key === ' ' || key === 'Enter' || key === 'Spacebar'
+      const navigate = key === 'ArrowRight' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowUp' || key === 'Home' || key === 'End'
+      if (!activate && !navigate) return
+      const currentIndex = Math.max(0, values.indexOf(current))
+      let nextIndex = currentIndex
+      if (activate) {
+        const focused = values.indexOf(event.target?.value)
+        nextIndex = focused >= 0 ? focused : currentIndex
+      } else if (key === 'Home') {
+        nextIndex = 0
+      } else if (key === 'End') {
+        nextIndex = values.length - 1
+      } else if (key === 'ArrowRight' || key === 'ArrowDown') {
+        nextIndex = (currentIndex + 1) % values.length
+      } else {
+        nextIndex = (currentIndex - 1 + values.length) % values.length
+      }
+      event.preventDefault()
+      choose(values[nextIndex])
+      const node = refs.current?.[values[nextIndex]]
+      if (typeof node?.focus === 'function') node.focus()
+    }
+
     function closeDetailsOnEscape(event) {
       if (event.key !== 'Escape' || event.nativeEvent?.isComposing || !event.currentTarget.open) return
       event.preventDefault()
@@ -1276,6 +1342,8 @@ window.__ModuleLoader__.load({
       const [runtime, setRuntime] = useState(undefined)
       const [runtimeRequest, setRuntimeRequest] = useState(0)
       const busyRef = useRef(false)
+      const implementationInputs = useRef({})
+      const roundModeInputs = useRef({})
       useEffect(() => {
         let current = true
         setRuntime(undefined)
@@ -1310,6 +1378,11 @@ window.__ModuleLoader__.load({
           return base === null ? previous : { revision, value: mutate(base) }
         })
       }, [baseDraft, revision])
+
+      const chooseImplementation = (value) => edit((current) => ({ ...current, implementation: value }))
+      const chooseRoundMode = (value) => edit((current) => ({ ...current, roundLimitMode: value }))
+      const onImplementationKeyDown = (event) => radioCardKeyDown(event, IMPLEMENTATION_MODES, live.implementation, chooseImplementation, implementationInputs)
+      const onRoundModeKeyDown = (event) => radioCardKeyDown(event, ROUND_LIMIT_MODES, live.roundLimitMode, chooseRoundMode, roundModeInputs)
 
       const save = async () => {
         if (!form || !writable || busyRef.current || !dirty || invalid !== null || parsed?.value === undefined) return
@@ -1350,14 +1423,22 @@ window.__ModuleLoader__.load({
       const disabled = !writable || busy
       const nativeField = (key, label, hint) => {
         const id = 'dsh-better-goal-' + key
+        const hintId = id + '-hint'
+        const errorId = id + '-error'
         const error = invalid === 'invalidNative' && parsed.field === key ? tr(t, invalid) : undefined
-        return h(Field, { key, t, id, label: tr(t, label), hint: tr(t, hint), error },
-          h('input', { className: 'dbg-input', id, type: 'number', min: 1, max: UNLIMITED_ROUNDS, step: 1, inputMode: 'numeric', value: live[key], disabled,
-            'aria-invalid': Boolean(error) || undefined, 'aria-describedby': error ? id + '-error' : undefined,
-            onChange: (event) => edit((current) => ({ ...current, [key]: event.target.value })),
-          }))
+        return h('div', { key, className: 'dbg-field' },
+          h('div', { className: 'dbg-fieldHeading' },
+            h('label', { className: 'dbg-fieldLabel', htmlFor: id }, tr(t, label))),
+          h('div', { className: 'dbg-fieldBody' },
+            h('input', {
+              className: 'dbg-input', id, type: 'number', min: 1, max: UNLIMITED_ROUNDS, step: 1, inputMode: 'numeric', value: live[key], disabled,
+              'aria-invalid': Boolean(error) || undefined,
+              'aria-describedby': error ? errorId + ' ' + hintId : hintId,
+              onChange: (event) => edit((current) => ({ ...current, [key]: event.target.value })),
+            }),
+            h('p', { className: 'dbg-hint', id: hintId }, tr(t, hint)),
+            error ? h('p', { className: 'dbg-fieldError', id: errorId, role: 'alert' }, error) : null))
       }
-      const nativeNonDefault = (parsed?.value ? parsed.value.nativeBlockedAfterConsecutiveRounds !== 3 : live.nativeBlockedAfterConsecutiveRounds !== '3') ? 1 : 0
       const roundLimitValue = parsePositiveSafeIntegerText(live.roundLimit)
       const runtimeTone = runtime === null ? 'error' : runtime === undefined ? undefined : 'active'
       const runtimeLabel = runtime === undefined
@@ -1365,62 +1446,104 @@ window.__ModuleLoader__.load({
         : runtime === null
           ? tr(t, 'runtimeUnavailable')
           : tr(t, 'runtimeActive', { implementation: tr(t, runtime.runtime?.implementation === 'native' ? 'runtimeNative' : 'runtimeBetter') })
-      const implementationCard = (value) => h('label', {
-        key: value,
-        className: 'dbg-modeCard',
-        'data-checked': live.implementation === value || undefined,
-        'data-disabled': disabled || undefined,
-      },
-        h('input', {
-          className: 'dbg-segmentInput', type: 'radio', name: 'dsh-better-goal-implementation',
-          id: 'dsh-better-goal-implementation-' + value, value,
-          checked: live.implementation === value, disabled,
-          onChange: () => edit((current) => ({ ...current, implementation: value })),
-        }),
-        h('span', { className: 'dbg-modeCardGlyph', 'aria-hidden': true }, value === 'enhanced' ? h(IconGoal) : h(IconNative)),
-        h('span', { className: 'dbg-modeCardText' },
-          h('span', { className: 'dbg-modeCardTitle' }, tr(t, value === 'enhanced' ? 'runtimeBetter' : 'runtimeNative')),
-          h('span', { className: 'dbg-modeCardDesc' }, tr(t, value === 'enhanced' ? 'implEnhancedHint' : 'implNativeHint'))),
-        h('span', { className: 'dbg-modeCardCheck', 'aria-hidden': true }, live.implementation === value ? h(IconCheck) : null))
+      const implementationCard = (value) => {
+        const enhanced = value === 'enhanced'
+        const checked = live.implementation === value
+        return h('label', {
+          key: value,
+          className: 'dbg-modeCard',
+          'data-checked': checked || undefined,
+          'data-disabled': disabled || undefined,
+        },
+          h('input', {
+            className: 'dbg-segmentInput', type: 'radio', name: 'dsh-better-goal-implementation',
+            id: 'dsh-better-goal-implementation-' + value, value, checked, disabled,
+            ref: (node) => { implementationInputs.current[value] = node },
+            onChange: () => chooseImplementation(value),
+          }),
+          h('span', { className: 'dbg-modeCardHead' },
+            h('span', { className: 'dbg-modeCardGlyph', 'aria-hidden': true }, enhanced ? h(IconGoal) : h(IconNative)),
+            h('span', { className: 'dbg-modeCardTitle' }, tr(t, enhanced ? 'runtimeBetter' : 'runtimeNative')),
+            h('span', { className: 'dbg-chip', 'data-tone': checked ? 'accent' : undefined }, tr(t, enhanced ? 'implEnhancedTag' : 'implNativeTag')),
+            h('span', { className: 'dbg-modeCardCheck', 'aria-hidden': true }, checked ? h(IconCheck) : null)),
+          h('span', { className: 'dbg-modeCardFlow', 'aria-hidden': true }, tr(t, enhanced ? 'implEnhancedFlow' : 'implNativeFlow')),
+          h('span', { className: 'dbg-modeCardBullets' },
+            (enhanced
+              ? ['implEnhancedBullet1', 'implEnhancedBullet2', 'implEnhancedBullet3']
+              : ['implNativeBullet1', 'implNativeBullet2', 'implNativeBullet3']).map((key) =>
+              h('span', { className: 'dbg-modeCardBullet', key }, tr(t, key)))))
+      }
+      const roundModeCard = (value) => {
+        const copy = value === 'agent'
+          ? { title: 'modeAgent', flow: 'modeAgentFlow', stop: 'modeAgentStop' }
+          : value === 'unlimited'
+            ? { title: 'modeUnlimited', flow: 'modeUnlimitedFlow', stop: 'modeUnlimitedStop' }
+            : { title: 'modeFixed', flow: 'modeFixedFlow', stop: 'modeFixedStop' }
+        const checked = live.roundLimitMode === value
+        return h('label', {
+          key: value,
+          className: 'dbg-modeCard',
+          'data-checked': checked || undefined,
+          'data-disabled': disabled || undefined,
+        },
+          h('input', {
+            className: 'dbg-segmentInput', type: 'radio', name: 'dsh-better-goal-round-limit-mode',
+            id: 'dsh-better-goal-round-limit-mode-' + value, value, checked, disabled,
+            ref: (node) => { roundModeInputs.current[value] = node },
+            onChange: () => chooseRoundMode(value),
+          }),
+          h('span', { className: 'dbg-modeCardHead' },
+            h('span', { className: 'dbg-modeCardTitle' }, tr(t, copy.title)),
+            h('span', { className: 'dbg-modeCardCheck', 'aria-hidden': true }, checked ? h(IconCheck) : null)),
+          h('span', { className: 'dbg-modeCardFlow', 'aria-hidden': true }, tr(t, copy.flow)),
+          h('span', { className: 'dbg-modeCardStop' },
+            h('span', { className: 'dbg-modeCardStopLabel' }, tr(t, 'modeStop') + ' · '),
+            tr(t, copy.stop)))
+      }
       return h('div', rootProps,
-        h('h3', { className: 'dbg-title' }, tr(t, 'settingsTitle')),
-        writable ? null : h('p', { className: 'dbg-runtime', role: 'status' },
-          h('span', { className: 'dbg-runtimeDot', 'data-tone': 'warn', 'aria-hidden': true }),
-          h('span', { className: 'dbg-runtimeLabel' }, tr(t, 'readonly'))),
+        h('header', { className: 'dbg-pageHead' },
+          h('h3', { className: 'dbg-title' }, tr(t, 'settingsTitle')),
+          h('p', { className: 'dbg-pagePurpose' }, tr(t, 'settingsIntro'))),
+        writable ? null : h('p', { className: 'dbg-note', role: 'status' }, tr(t, 'readonly')),
+        h('div', { className: 'dbg-runtime', role: 'status', 'data-runtime': runtime === null ? 'unavailable' : runtime === undefined ? 'loading' : 'ready' },
+          h('span', { className: 'dbg-runtimeDot', 'data-tone': runtimeTone, 'aria-hidden': true }),
+          h('p', { className: 'dbg-runtimeLabel' }, runtimeLabel),
+          showReloadChip ? h('span', { className: 'dbg-chip', 'data-tone': 'accent' }, tr(t, 'reloadRequired')) : null,
+          h('button', {
+            type: 'button', className: 'dbg-iconBtn dbg-runtimeRefresh',
+            'aria-label': tr(t, 'refreshRuntime'), title: tr(t, 'refreshRuntime'),
+            disabled: runtime === undefined,
+            onClick: () => setRuntimeRequest((value) => value + 1),
+          }, h(IconRefresh))),
         h('fieldset', { className: 'dbg-section' },
           h('legend', { className: 'dbg-sectionTitle' }, tr(t, 'implementation')),
-          h('div', { className: 'dbg-modeCards' }, ['enhanced', 'native'].map(implementationCard))),
+          h('div', { className: 'dbg-modeCards', role: 'radiogroup', 'aria-label': tr(t, 'implementation'), onKeyDown: onImplementationKeyDown },
+            IMPLEMENTATION_MODES.map(implementationCard)),
+          h('p', { className: 'dbg-hint' }, tr(t, 'implementationHint'))),
         live.implementation === 'native'
           ? h('fieldset', { className: 'dbg-section' },
             h('legend', { className: 'dbg-sectionTitle' }, tr(t, 'nativeSection')),
             nativeField('nativeDefaultMaxGoalRounds', 'nativeDefaultLabel', 'nativeDefaultHint'),
-            h('details', { className: 'dbg-advanced', onKeyDown: closeDetailsOnEscape, 'data-invalid': invalid === 'invalidNative' && parsed.field === 'nativeBlockedAfterConsecutiveRounds' || undefined },
-              h('summary', null, tr(t, 'advanced'), nativeNonDefault ? h('span', { className: 'dbg-advancedCount' }, tr(t, 'modified', { count: nativeNonDefault })) : null),
-              nativeField('nativeBlockedAfterConsecutiveRounds', 'nativeBlockedLabel', 'nativeBlockedHint')))
+            nativeField('nativeBlockedAfterConsecutiveRounds', 'nativeBlockedLabel', 'nativeBlockedHint'))
           : h('fieldset', { className: 'dbg-section' },
             h('legend', { className: 'dbg-sectionTitle' }, tr(t, 'modeLabel')),
-            h('div', { className: 'dbg-segmented' }, ...ROUND_LIMIT_MODES.map((value) =>
-              h('label', { className: 'dbg-segment', key: value },
-                h('input', { className: 'dbg-segmentInput', type: 'radio', name: 'dsh-better-goal-round-limit-mode', id: 'dsh-better-goal-round-limit-mode-' + value, value, checked: live.roundLimitMode === value, disabled,
-                  onChange: () => edit((current) => ({ ...current, roundLimitMode: value })),
-                }), h('span', null, tr(t, value === 'agent' ? 'modeAgent' : value === 'unlimited' ? 'modeUnlimited' : 'modeFixed'))))),
-            h('div', { className: 'dbg-roundPolicy', 'data-mode': live.roundLimitMode, 'aria-hidden': true },
-              h('span', { className: 'dbg-roundStart' }, '1'),
-              h('span', { className: 'dbg-roundRail' }),
-              h('span', { className: 'dbg-roundCap', 'data-mode': live.roundLimitMode, title: tr(t, live.roundLimitMode === 'agent' ? 'modeAgent' : live.roundLimitMode === 'unlimited' ? 'modeUnlimited' : 'roundLimitLabel') },
-                live.roundLimitMode === 'fixed' ? (roundLimitValue === undefined ? '—' : isUnlimitedCap(roundLimitValue) ? '∞' : String(roundLimitValue)) : live.roundLimitMode === 'unlimited' ? '∞' : tr(t, 'modeAgent'))),
+            h('p', { className: 'dbg-hint' }, tr(t, 'roundDefinition')),
+            h('div', { className: 'dbg-optionCards', role: 'radiogroup', 'aria-label': tr(t, 'modeLabel'), onKeyDown: onRoundModeKeyDown },
+              ROUND_LIMIT_MODES.map(roundModeCard)),
             live.roundLimitMode === 'fixed' ? h(Field, { t, id: 'dsh-better-goal-round-limit', label: tr(t, 'roundLimitLabel'),
               error: invalid === 'invalidRoundLimit' ? tr(t, invalid) : undefined,
             }, h('input', { className: 'dbg-input', id: 'dsh-better-goal-round-limit', type: 'number', min: 1, max: UNLIMITED_ROUNDS, step: 1, inputMode: 'numeric', value: live.roundLimit, disabled,
               'aria-invalid': invalid === 'invalidRoundLimit' || undefined,
               'aria-describedby': invalid === 'invalidRoundLimit' ? 'dsh-better-goal-round-limit-error' : undefined,
               onChange: (event) => edit((current) => ({ ...current, roundLimit: event.target.value })),
-            })) : null),
-        h('div', { className: 'dbg-runtime', role: 'status' },
-          h('span', { className: 'dbg-runtimeDot', 'data-tone': runtimeTone, 'aria-hidden': true }),
-          h('p', { className: 'dbg-runtimeLabel' }, runtimeLabel),
-          runtime === null ? h('button', { type: 'button', className: 'dbg-button', 'data-variant': 'outline', onClick: () => setRuntimeRequest((value) => value + 1) }, tr(t, 'retry')) : null,
-          showReloadChip ? h('span', { className: 'dbg-chip', 'data-tone': 'accent' }, tr(t, 'reloadRequired')) : null),
+            }), h('span', { className: 'dbg-roundSpan' }, tr(t, 'roundSpan', { rounds: roundLimitValue === undefined ? '…' : isUnlimitedCap(roundLimitValue) ? '∞' : String(roundLimitValue) }))) : null),
+        h('details', { className: 'dbg-help dbg-helpText', onKeyDown: closeDetailsOnEscape },
+          h('summary', null, tr(t, 'help')),
+          h('div', { className: 'dbg-helpBody' },
+            h('p', null, tr(t, 'roundDefinition')),
+            h('p', null, tr(t, 'implementationHint')),
+            state.value?.questionTimeoutSeconds === undefined ? null : h('p', null,
+              (state.value.questionTimeoutSeconds === -1 ? tr(t, 'never') : tr(t, 'legacyTimeout', { seconds: state.value.questionTimeoutSeconds })) + ' · ' + tr(t, 'legacyHint')))),
         notice !== null ? h('p', { className: 'dbg-status', 'data-tone': notice.tone, role: notice.tone === 'error' ? 'alert' : 'status' }, notice.text) : null,
         dirty ? h('div', { className: 'dbg-footer' },
           h('span', { className: 'dbg-status', role: 'status' }, busy ? tr(t, 'saving') : tr(t, 'pendingChanges', { count: changedCount }) + (requiresReload ? ' · ' + tr(t, 'reloadRequired') : '')),
