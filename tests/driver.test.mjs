@@ -5,6 +5,34 @@ import { DEFAULTS, UNLIMITED_ROUNDS } from '../src/config.js'
 
 const drain = async () => { for (let i = 0; i < 6; i++) await new Promise(setImmediate) }
 
+/**
+ * Run one goal turn whose measured duration is exactly `ms`.
+ *
+ * The driver measures turn length with `Date.now()`, so the clock is frozen for
+ * the duration of the turn and advanced by `ms` between turn/start and
+ * turn/end. Tests in one file run sequentially, so the global override cannot
+ * leak into a concurrent test.
+ * @param h - harness from `harness()`.
+ * @param ms - elapsed milliseconds the driver should observe.
+ * @param reason - the real turn/end reason (an aborted turn nests why).
+ */
+async function runTurn(h, ms, reason = { kind: 'completed' }) {
+  const realNow = Date.now
+  let clock = 1_000_000
+  Date.now = () => clock
+  try {
+    h.emit('session/event', h.agent.session, { type: 'turn/start', data: {} })
+    await h.admit()
+    clock += ms
+    h.emit('session/event', h.agent.session, { type: 'turn/end', data: { reason } })
+  } finally {
+    Date.now = realNow
+  }
+}
+
+/** The last queued round's prompt text. */
+const lastPrompt = (h) => h.queued.at(-1).content[0].text
+
 function harness(settings = {}, options = {}) {
   const handlers = new Map(), cleanups = [], agents = new Map(), queued = [], warnings = []
   const config = { ...DEFAULTS, ...settings }
@@ -95,6 +123,30 @@ test('continuation prompt preserves scope, evidence audit, pause-for-user and no
   assert.doesNotMatch(prompt, /update_goal|create_goal|goal_id|current id\/revision|"fail"/)
 })
 
+test('every round states that goal rounds arrive with no delay and names the blocking waits', () => {
+  const prompt = renderGoalRoundPrompt({ objective: 'Ship it', maxGoalRounds: UNLIMITED_ROUNDS }, 1)[0].text
+  assert.match(prompt, /delivered immediately after your previous turn ended/)
+  assert.match(prompt, /no delay, and nothing runs in the background between them/)
+  // The three ways to block inside the turn, not by ending it.
+  assert.match(prompt, /a foreground command, job_output with wait: true, or wait_subagent/)
+  assert.match(prompt, /Ending the turn to wait for a notification only starts another round right away/)
+  // The warning is opt-in per round and absent from a normal round.
+  assert.doesNotMatch(prompt, /ended very quickly/)
+})
+
+test('the spin warning appears only when the previous goal turn ended quickly', () => {
+  const goal = { objective: 'Ship it', maxGoalRounds: UNLIMITED_ROUNDS }
+  const plain = renderGoalRoundPrompt(goal, 2, false)[0].text
+  const warned = renderGoalRoundPrompt(goal, 2, true)[0].text
+  assert.doesNotMatch(plain, /ended very quickly/)
+  assert.match(warned, /previous goal turn ended very quickly/)
+  assert.match(warned, /block until the result you need arrives, do substantive work, or call goal\(action: "pause"\)/)
+  // The warning is additive: every invariant still holds in the warned round.
+  for (const pattern of [/no delay/, /user-provided task data/, /goal\(action: "complete"\)/, /Use set only to replace the whole objective/]) {
+    assert.match(warned, pattern)
+  }
+})
+
 test('driver reserves exactly one round and requires its matching pre-step admission', async (t) => {
   const h = harness(); t.after(() => h.close())
   h.start(); await drain()
@@ -103,6 +155,78 @@ test('driver reserves exactly one round and requires its matching pre-step admis
   assert.equal((await h.admit()).kind, 'enter')
   h.goal.phase = 'complete'; h.goal.activation = 'disarmed'; h.idle(); await drain()
   assert.equal(h.queued.length, 1)
+})
+
+test('a goal turn shorter than the threshold makes the next round carry the spin warning', async (t) => {
+  const h = harness({ spinHintSeconds: 120 }); t.after(() => h.close())
+  h.start(); await drain()
+  assert.equal(h.queued.length, 1)
+  // First round has no history to judge; it never carries the warning.
+  assert.doesNotMatch(lastPrompt(h), /ended very quickly/)
+
+  await runTurn(h, 3_000)
+  h.idle(); await drain()
+  assert.equal(h.queued.length, 2, 'a fast turn is followed by exactly one new round')
+  assert.match(lastPrompt(h), /previous goal turn ended very quickly/)
+
+  // The warning is consumed: the following round is measured fresh, so a slow
+  // turn clears it instead of repeating it forever.
+  await runTurn(h, 10 * 60_000)
+  h.idle(); await drain()
+  assert.equal(h.queued.length, 3)
+  assert.doesNotMatch(lastPrompt(h), /ended very quickly/, 'a slow turn clears the warning')
+})
+
+test('a goal turn at or above the threshold, or with the switch off, never warns', async (t) => {
+  const slow = harness({ spinHintSeconds: 120 }); t.after(() => slow.close())
+  slow.start(); await drain()
+  await runTurn(slow, 120_000)  // exactly the threshold: not "shorter than"
+  slow.idle(); await drain()
+  assert.equal(slow.queued.length, 2)
+  assert.doesNotMatch(lastPrompt(slow), /ended very quickly/)
+
+  const off = harness({ spinHintSeconds: 0 }); t.after(() => off.close())
+  off.start(); await drain()
+  await runTurn(off, 1)
+  off.idle(); await drain()
+  assert.equal(off.queued.length, 2)
+  assert.doesNotMatch(lastPrompt(off), /ended very quickly/, '0 disables the warning')
+
+  const tuned = harness({ spinHintSeconds: 30 }); t.after(() => tuned.close())
+  tuned.start(); await drain()
+  await runTurn(tuned, 29_000)
+  tuned.idle(); await drain()
+  assert.match(lastPrompt(tuned), /ended very quickly/, 'a custom threshold applies to the next round')
+})
+
+test('an aborted or token-capped goal turn is not read as idling', async (t) => {
+  for (const reason of [{ kind: 'aborted', reason: { kind: 'user' } }, { kind: 'max-tokens' }]) {
+    const h = harness({ spinHintSeconds: 120 }); t.after(() => h.close())
+    h.start(); await drain()
+    await runTurn(h, 1_000, reason)
+    h.idle(); await drain()
+    // Neither reason is evidence about the model, so no round may carry the
+    // warning. (An aborted turn also disarms/pauses the goal, so assert on any
+    // round that did get queued.)
+    for (const message of h.queued.slice(1)) {
+      assert.doesNotMatch(message.content[0].text, /ended very quickly/, reason.kind + ' must not produce a spin warning')
+    }
+  }
+})
+
+test('a human ordinary turn between goal rounds does not arm the warning', async (t) => {
+  const h = harness({ spinHintSeconds: 120 }); t.after(() => h.close())
+  h.start(); await drain()
+  await runTurn(h, 10 * 60_000)
+  h.idle(); await drain()
+
+  // A human message opens its own turn; it is not a goal round.
+  h.emit('session/event', h.agent.session, { type: 'turn/start', data: {} })
+  h.emit('session/event', h.agent.session, { type: 'turn/end', data: { reason: { kind: 'completed' } } })
+  h.idle(); await drain()
+  for (const message of h.queued.slice(2)) {
+    assert.doesNotMatch(message.content[0].text, /ended very quickly/, 'only goal turns are measured')
+  }
 })
 
 test('Plan mode suppresses automatic work and leaving it admits the explicitly armed goal', async (t) => {

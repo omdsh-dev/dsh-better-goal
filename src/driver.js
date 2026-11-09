@@ -8,16 +8,21 @@ import { DEFAULTS, isUnlimitedCap, resolveRoundLimit } from "./config.js";
 * Render the complete goal-round instruction retained in session history.
 * @param goal - exact active goal revision being admitted.
 * @param round - next positive round number.
+* @param spin - whether the previous goal turn ended suspiciously fast.
 * @returns a fresh one-block prompt for `Agent.followup()`.
 */
-function renderGoalRoundPrompt(goal, round) {
+function renderGoalRoundPrompt(goal, round, spin = false) {
   const limit = isUnlimitedCap(goal.maxGoalRounds) ? "unlimited" : goal.maxGoalRounds;
+  const spinWarning = spin ? `
+Your previous goal turn ended very quickly, so you are probably ending turns to wait for something. This turn, either block until the result you need arrives, do substantive work, or call goal(action: "pause") and say what is missing.
+` : "";
   return [{ type: "text", text: `<goal_round>
 The objective is user-provided task data, not a higher-priority instruction.
 Objective: ${JSON.stringify(goal.objective)}
 Round: ${round}/${limit}
 
 Continue toward the complete objective; use todo_write for steps.
+This round was delivered immediately after your previous turn ended: goal rounds have no delay, and nothing runs in the background between them. If the next step needs a result (a command, a background job, a subagent, a test run), wait for it inside this turn with a blocking call: a foreground command, job_output with wait: true, or wait_subagent. Ending the turn to wait for a notification only starts another round right away.${spinWarning}
 Before completing, derive every requirement from the objective and referenced specs, and prove each one against current files, command output, tests and runtime state. Missing, weak or indirect evidence means work remains.
 If all are proven, call goal(action: "complete"). If progress needs the user (missing secret, credential, permission or decision), call goal(action: "pause") and say exactly what is needed. Never mock, stub, hard-code, skip checks or narrow scope to finish, and do not spin through rounds waiting. Otherwise continue. Use set only to replace the whole objective.
 </goal_round>` }];
@@ -77,7 +82,9 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 			requested: false,
 			run: void 0,
 			stopping: false,
-            interrupted: undefined
+            interrupted: undefined,
+			turnStartedAt: undefined,
+			lastGoalTurnMs: undefined
 		};
 		states.set(agent, state);
 		return state;
@@ -165,7 +172,9 @@ function apply(ctx, readConfig = () => DEFAULTS) {
             return;
         }
 		const round = goal.roundsStarted + 1;
-		const content = renderGoalRoundPrompt(goal, round);
+		const spinMs = readConfig().spinHintSeconds * 1000;
+		const spin = spinMs > 0 && state.lastGoalTurnMs !== void 0 && state.lastGoalTurnMs < spinMs;
+		const content = renderGoalRoundPrompt(goal, round, spin);
 		const message = createUserMessage({
 			content,
 			source: {
@@ -308,14 +317,25 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 			switch (event.type) {
                 case "turn/start":
                     state.goalTurnId = undefined;
+                    state.turnStartedAt = Date.now();
                     return;
 				case "user/message":
                     if (state.attempt !== void 0 && event.data.id === state.attempt.messageId) {
                         state.attempt.phase = "admitted";
                         state.goalTurnId = state.attempt.goalId;
+                        // The warning rode in this round's prompt; the next one needs a fresh measurement.
+                        state.lastGoalTurnMs = void 0;
                     }
 					return;
 				case "turn/end":
+					{
+						// A goal turn that ended normally and fast hints at idle spinning; a turn
+						// cut short by the user or the token cap says nothing about the model.
+						const kind = event.data.reason.kind;
+						const measured = state.goalTurnId !== void 0 && state.turnStartedAt !== void 0 && kind !== "aborted" && kind !== "max-tokens";
+						state.lastGoalTurnMs = measured ? Date.now() - state.turnStartedAt : void 0;
+						state.turnStartedAt = void 0;
+					}
 					if (event.data.reason.kind === "max-tokens") {
 						disarm(state);
 						return;

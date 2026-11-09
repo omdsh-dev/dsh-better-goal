@@ -41,6 +41,7 @@ function resolved(value) {
     nativeBlockedAfterConsecutiveRounds: config.nativeBlockedAfterConsecutiveRounds.get(),
     roundLimitMode: config.roundLimitMode.get(),
     roundLimit: config.roundLimit.get(),
+    spinHintSeconds: config.spinHintSeconds.get(),
     questionTimeoutSeconds: config.questionTimeoutSeconds.get(),
   }
 }
@@ -58,6 +59,7 @@ test('DEFAULTS is the exact frozen JSON shape', () => {
     nativeBlockedAfterConsecutiveRounds: 3,
     roundLimitMode: 'agent',
     roundLimit: 256,
+    spinHintSeconds: 120,
     questionTimeoutSeconds: 120,
   })
   assert.equal(Object.isFrozen(DEFAULTS), true)
@@ -77,6 +79,7 @@ test('Config({}) resolves the documented defaults through volatile references', 
   assert.equal(typeof config.roundLimitMode.get, 'function')
   assert.equal(typeof config.roundLimit.get, 'function')
   assert.equal(typeof config.questionTimeoutSeconds.get, 'function')
+  assert.equal(typeof config.spinHintSeconds.get, 'function')
   assert.deepEqual(resolved({}), DEFAULTS)
 })
 
@@ -113,6 +116,18 @@ test('Config rejects zero, fractional, oversized, and non-number question timeou
   assert.equal(resolved({ questionTimeoutSeconds: 1 }).questionTimeoutSeconds, 1)
 })
 
+test('spinHintSeconds: 0 disables the warning, 1..3600 accepted, everything else rejected', () => {
+  assert.equal(resolved({ spinHintSeconds: 0 }).spinHintSeconds, 0)
+  assert.equal(resolved({ spinHintSeconds: 1 }).spinHintSeconds, 1)
+  assert.equal(resolved({ spinHintSeconds: 3600 }).spinHintSeconds, 3600)
+  for (const spinHintSeconds of [-1, 1.5, 3601, '120', Number.NaN, Number.POSITIVE_INFINITY]) {
+    assert.throws(() => Config({ spinHintSeconds }), undefined, `spinHintSeconds ${String(spinHintSeconds)} should be rejected`)
+    assert.throws(() => readConfig({ spinHintSeconds }), undefined, `readConfig spinHintSeconds ${String(spinHintSeconds)} should be rejected`)
+  }
+  // 0 is the documented off switch, not a fallback to the default.
+  assert.equal(readConfig({ spinHintSeconds: 0 }).spinHintSeconds, 0)
+})
+
 test('every schema field is volatile and no other field exists', () => {
   const liveSchema = new z(Config.toJSON())
   assert.deepEqual(Object.keys(liveSchema.dict ?? {}).sort(), [
@@ -122,6 +137,7 @@ test('every schema field is volatile and no other field exists', () => {
     'questionTimeoutSeconds',
     'roundLimit',
     'roundLimitMode',
+    'spinHintSeconds',
   ])
   const paths = []
   const walk = (node, path) => {
