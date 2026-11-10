@@ -137,7 +137,7 @@ GoalBar 不新建 goal，只通过正式 `remote.goals` RPC 做编辑、暂停�
 
 ## 轮数策略与实现选择
 
-六个字段都由正式 Config 管理，schema 全部 volatile。默认值在 [src/config.js](../src/config.js)：
+七个字段都由正式 Config 管理，schema 全部 volatile。默认值在 [src/config.js](../src/config.js)：
 
 | 字段 | 默认 | 约束 | 用途 |
 | --- | --- | --- | --- |
@@ -146,9 +146,10 @@ GoalBar 不新建 goal，只通过正式 `remote.goals` RPC 做编辑、暂停�
 | `nativeBlockedAfterConsecutiveRounds` | `3` | 正安全整数 | 只在 `native` 实现使用；传给当前原生工具的受阻轮数。**装配时输入**，重载生效。 |
 | `roundLimitMode` | `agent` | `agent` / `unlimited` / `fixed` | 选择解释轮数上限的策略（增强实现）。热更新，保存即生效。 |
 | `roundLimit` | `256` | 正安全整数 | 只在 `fixed` 模式使用（增强实现）。热更新，保存即生效。 |
+| `spinHintSeconds` | `120` | `0` 或 `1..3600` 的整数 | 增强实现的空转提示阈值：上一轮 goal 回合短于该秒数时，本轮提示追加空转警示。`0` 关闭。热更新；`native` 实现不消费、设置页也不渲染。 |
 | `questionTimeoutSeconds` | `120` | `-1` 或 `1..2147483` 的整数 | **已弃用、仅保留读取**；新的提问等待由 dsh-better-ask-user 管理，用于旧配置迁移。 |
 
-volatile schema 让全部字段可写并可热投递到活 fiber，但 `implementation` / `native*` 的值只在 `apply` 装配时读取：运行中的服务、工具和驱动不随保存替换，设置页对此给出重载提示。`roundLimitMode` / `roundLimit` 则是真正的热设置，每次准入重读。
+volatile schema 让全部字段可写并可热投递到活 fiber，但 `implementation` / `native*` 的值只在 `apply` 装配时读取：运行中的服务、工具和驱动不随保存替换，设置页对此给出重载提示。`roundLimitMode` / `roundLimit` / `spinHintSeconds` 则是真正的热设置，每次准入重读。
 
 `resolveRoundLimit` 的解析顺序：
 
@@ -164,6 +165,8 @@ volatile schema 让全部字段可写并可热投递到活 fiber，但 `implemen
 
 ## 完成与暂停
 
+- 每轮的 `<goal_round>` 都写明轮次是**上一回合结束后立即**投递的（无延迟，期间后台没有在等任何东西），需要结果时必须在回合内阻塞等待（前台命令、`job_output` 的 `wait: true`、`wait_subagent`），不要靠结束回合等通知——那只会立刻再开一轮。
+- 空转提示：驱动记录上一轮 goal 回合的时长（`turn/start` → 正常 `turn/end`）。短于 `spinHintSeconds` 时，本轮 prompt 追加一段警示，提醒模型要么阻塞等待、要么继续实质工作、要么 `pause` 说明缺什么。警告**用后即清**（下一次准入重新测量），所以只有连续快回合才连续提示；被用户中断（`aborted`）或被 token 上限截断的回合不算空转，普通人类回合也不计入。
 - 自动轮次的 prompt 要求从 objective 和引用规格逐项推导要求，并检查当前文件、命令结果、测试和运行状态；局部进度、记忆或“应该可以”不能作为完成证据。它是行为约束，不是硬编码测试门。
 - 进展需要用户时（缺密钥、凭据、权限、账号或只有用户能做的决定），模型应先做完独立工作，再立即 `pause` 并说明缺什么；不得用 mock、stub、硬编码、跳过检查或缩小范围来“完成”。没有“必须阻塞三个回合”的门槛。
 - 模型在目标轮次内自行 `pause` 时，驱动不会取消当前回合（只有非本 Agent 发起的暂停才取消运行中的回合）；回合结束后目标不再可驱动，不排下一轮。
