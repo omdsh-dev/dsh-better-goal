@@ -800,29 +800,40 @@ test('exported form helpers normalize defaults and validate drafts strictly', ()
     roundLimitMode: 'fixed',
     roundLimit: UNLIMITED,
     spinHintSeconds: 120,
+    jobWaitSeconds: 2400,
   })
   // 0 is the off switch and must survive normalization; out-of-range falls back.
   assert.equal(shapeConfig({ spinHintSeconds: 0 }).spinHintSeconds, 0)
   assert.equal(shapeConfig({ spinHintSeconds: 3600 }).spinHintSeconds, 3600)
   assert.equal(shapeConfig({ spinHintSeconds: 3601 }).spinHintSeconds, 120)
   assert.equal(shapeConfig({ spinHintSeconds: -1 }).spinHintSeconds, 120)
+  // jobWaitSeconds: 0 means "never wait" and must also survive normalization.
+  assert.equal(shapeConfig({ jobWaitSeconds: 0 }).jobWaitSeconds, 0)
+  assert.equal(shapeConfig({ jobWaitSeconds: 86400 }).jobWaitSeconds, 86400)
+  assert.equal(shapeConfig({ jobWaitSeconds: 86401 }).jobWaitSeconds, 2400)
+  assert.equal(shapeConfig({ jobWaitSeconds: -1 }).jobWaitSeconds, 2400)
+  for (const bad of ['-1', '1.5', '86401', '', 'abc']) {
+    assert.deepEqual(parseDraft({ implementation: 'enhanced', roundLimitMode: 'agent', spinHintSeconds: '120', jobWaitSeconds: bad }, roundDefaults), { error: 'invalidJobWait' })
+  }
+  assert.equal(parseDraft({ implementation: 'enhanced', roundLimitMode: 'agent', spinHintSeconds: '120', jobWaitSeconds: '0' }, roundDefaults).value.jobWaitSeconds, 0)
   assert.deepEqual(parseDraft({ implementation: 'enhanced', roundLimitMode: 'fixed', roundLimit: '1.5', spinHintSeconds: '120', questionTimeoutSeconds: '120' }, roundDefaults), {
     error: 'invalidRoundLimit',
   })
   for (const bad of ['-1', '1.5', '3601', '', 'abc']) {
     assert.deepEqual(parseDraft({ implementation: 'enhanced', roundLimitMode: 'agent', spinHintSeconds: bad }, roundDefaults), { error: 'invalidSpinHint' })
   }
-  assert.equal(parseDraft({ implementation: 'enhanced', roundLimitMode: 'agent', spinHintSeconds: '0' }, roundDefaults).value.spinHintSeconds, 0)
-  assert.deepEqual(parseDraft({ implementation: 'enhanced', roundLimitMode: 'agent', roundLimit: 'ignored', spinHintSeconds: '120', questionTimeoutSeconds: '-1' }, roundDefaults), {
+  assert.equal(parseDraft({ implementation: 'enhanced', roundLimitMode: 'agent', spinHintSeconds: '0', jobWaitSeconds: '2400' }, roundDefaults).value.spinHintSeconds, 0)
+  assert.deepEqual(parseDraft({ implementation: 'enhanced', roundLimitMode: 'agent', roundLimit: 'ignored', spinHintSeconds: '120', jobWaitSeconds: '2400', questionTimeoutSeconds: '-1' }, roundDefaults), {
     value: roundDefaults,
   })
   assert.deepEqual(diffOps(
-    { roundLimitMode: 'agent', roundLimit: 256, spinHintSeconds: 120, questionTimeoutSeconds: 120 },
-    { roundLimitMode: 'fixed', roundLimit: 10, spinHintSeconds: 0, questionTimeoutSeconds: 120 },
+    { roundLimitMode: 'agent', roundLimit: 256, spinHintSeconds: 120, jobWaitSeconds: 2400, questionTimeoutSeconds: 120 },
+    { roundLimitMode: 'fixed', roundLimit: 10, spinHintSeconds: 0, jobWaitSeconds: 600, questionTimeoutSeconds: 120 },
   ), [
     { op: 'set', path: ['roundLimitMode'], value: 'fixed' },
     { op: 'set', path: ['roundLimit'], value: 10 },
     { op: 'set', path: ['spinHintSeconds'], value: 0 },
+    { op: 'set', path: ['jobWaitSeconds'], value: 600 },
   ])
 })
 
@@ -1074,8 +1085,8 @@ test('Escape closes expanded field help before reaching the host modal', async (
 test('inactive policy drafts preserve existing canonical parameters without validating hidden input', () => {
   const { shapeConfig, parseDraft } = install().exports
   const host = shapeConfig({ implementation: 'native', nativeDefaultMaxGoalRounds: 17, nativeBlockedAfterConsecutiveRounds: 5, roundLimitMode: 'fixed', roundLimit: 99 })
-  const enhanced = parseDraft({ implementation: 'enhanced', nativeDefaultMaxGoalRounds: 'invalid', nativeBlockedAfterConsecutiveRounds: '0', roundLimitMode: 'agent', roundLimit: 'ignored', spinHintSeconds: '120' }, host)
+  const enhanced = parseDraft({ implementation: 'enhanced', nativeDefaultMaxGoalRounds: 'invalid', nativeBlockedAfterConsecutiveRounds: '0', roundLimitMode: 'agent', roundLimit: 'ignored', spinHintSeconds: '120', jobWaitSeconds: '2400' }, host)
   assert.deepEqual(enhanced.value, { ...host, implementation: 'enhanced', roundLimitMode: 'agent' })
-  const native = parseDraft({ implementation: 'native', nativeDefaultMaxGoalRounds: '17', nativeBlockedAfterConsecutiveRounds: '5', roundLimitMode: 'fixed', roundLimit: 'invalid', spinHintSeconds: '120' }, host)
+  const native = parseDraft({ implementation: 'native', nativeDefaultMaxGoalRounds: '17', nativeBlockedAfterConsecutiveRounds: '5', roundLimitMode: 'fixed', roundLimit: 'invalid', spinHintSeconds: '120', jobWaitSeconds: '2400' }, host)
   assert.deepEqual(native.value, host)
 })

@@ -20,6 +20,9 @@
  *     `agent` (the model may pass `max_goal_rounds`), `unlimited` (the
  *     compatibility sentinel), or `fixed` (the configured `roundLimit`).
  *   - `roundLimit` is the cap used only by `fixed` mode.
+ *   - `jobWaitSeconds` bounds how long the enhanced driver waits for this
+ *     session's background jobs before admitting the next round. `0` never
+ *     waits. Jobs are never cancelled by the wait; the native driver ignores it.
  *   - `spinHintSeconds` is the idle-spin threshold of the enhanced driver: when
  *     the previous goal turn lasted fewer seconds, the next `<goal_round>`
  *     carries a warning that the model is probably ending turns to wait for
@@ -72,11 +75,15 @@ export const DEFAULTS = Object.freeze({
   roundLimitMode: 'agent',
   roundLimit: 256,
   spinHintSeconds: 120,
+  jobWaitSeconds: 2400,
   questionTimeoutSeconds: 120,
 })
 
 /** Largest spin threshold the settings page offers (one hour). */
 const MAX_SPIN_HINT_SECONDS = 3600
+
+/** Largest time the driver will wait for background jobs before the next round (a day). */
+const MAX_JOB_WAIT_SECONDS = 86400
 
 /** One positive safe-integer goal-round cap. */
 const RoundLimit = z
@@ -89,6 +96,11 @@ const RoundLimit = z
 const SpinHintSeconds = z
   .union([z.const(0), z.natural().min(1).max(MAX_SPIN_HINT_SECONDS)])
   .default(DEFAULTS.spinHintSeconds)
+
+/** One job-wait window: exactly `0` (do not wait) or an integer in `[1, MAX_JOB_WAIT_SECONDS]`. */
+const JobWaitSeconds = z
+  .union([z.const(0), z.natural().min(1).max(MAX_JOB_WAIT_SECONDS)])
+  .default(DEFAULTS.jobWaitSeconds)
 
 /**
  * One question timeout: exactly `-1` (never) or an integer in
@@ -115,6 +127,11 @@ export const Config = z.object({
   roundLimit: RoundLimit.volatile(),
   /** Idle-spin warning threshold in seconds; 0 disables it. */
   spinHintSeconds: SpinHintSeconds.volatile(),
+  /**
+   * How long the driver waits for this session's background jobs before
+   * admitting the next round; 0 never waits. Jobs are never cancelled.
+   */
+  jobWaitSeconds: JobWaitSeconds.volatile(),
   /** Deprecated/load-only goal-question wait; kept for profile migration. */
   questionTimeoutSeconds: QuestionTimeout.volatile(),
 })
@@ -138,6 +155,14 @@ function fieldOf(config, key) {
 function requirePositiveSafeInteger(value, label) {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
     throw new TypeError(`${label} must be a positive safe integer, got ${String(value)}`)
+  }
+  return value
+}
+
+/** Require one schema-valid job-wait window: 0 or an integer in [1, 86400]. */
+function requireJobWaitSeconds(value) {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_JOB_WAIT_SECONDS) {
+    throw new TypeError(`jobWaitSeconds must be an integer in [0, ${MAX_JOB_WAIT_SECONDS}], got ${String(value)}`)
   }
   return value
 }
@@ -212,8 +237,8 @@ export function resolveRoundLimit(config, supplied, current) {
  * and throw `TypeError` otherwise; values are never silently coerced.
  *
  * @param config - live row config (volatile fields unwrap), or a plain object.
- * @returns the seven canonical configuration fields as plain JSON.
- * @throws {TypeError} for an invalid mode, cap, spin threshold, or question timeout.
+ * @returns the eight canonical configuration fields as plain JSON.
+ * @throws {TypeError} for an invalid mode, cap, spin threshold, job wait, or question timeout.
  */
 export function readConfig(config) {
   const implementation = fieldOf(config, 'implementation') ?? DEFAULTS.implementation
@@ -229,9 +254,11 @@ export function readConfig(config) {
   const roundLimit = limit == null ? DEFAULTS.roundLimit : requirePositiveSafeInteger(limit, 'roundLimit')
   const spin = fieldOf(config, 'spinHintSeconds')
   const spinHintSeconds = spin == null ? DEFAULTS.spinHintSeconds : requireSpinHintSeconds(spin)
+  const jobWait = fieldOf(config, 'jobWaitSeconds')
+  const jobWaitSeconds = jobWait == null ? DEFAULTS.jobWaitSeconds : requireJobWaitSeconds(jobWait)
   const timeout = fieldOf(config, 'questionTimeoutSeconds')
   const questionTimeoutSeconds = timeout == null
     ? DEFAULTS.questionTimeoutSeconds
     : requireQuestionTimeout(timeout)
-  return { implementation, nativeDefaultMaxGoalRounds, nativeBlockedAfterConsecutiveRounds, roundLimitMode, roundLimit, spinHintSeconds, questionTimeoutSeconds }
+  return { implementation, nativeDefaultMaxGoalRounds, nativeBlockedAfterConsecutiveRounds, roundLimitMode, roundLimit, spinHintSeconds, jobWaitSeconds, questionTimeoutSeconds }
 }
