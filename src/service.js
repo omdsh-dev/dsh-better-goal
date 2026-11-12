@@ -1,7 +1,7 @@
 /**
  * Local, native-compatible same-session goal service.
  *
- * This module is an in-package port of the DSH 0.2.2-rc.1 goal domain. It
+ * This module is an in-package port of the DSH 0.2.2-rc.2 goal domain. It
  * deliberately imports only the public DSH peer packages: the durable
  * `goal/change` v1 schema, replay fold, projection unit, live view, CAS
  * mutations, and activation state stay byte-compatible with the host goal
