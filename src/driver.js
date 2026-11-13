@@ -219,7 +219,7 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 		if (!drivable(goal)) return;
 		const subagents = ctx.get("subagents");
 		if (subagents !== void 0) {
-			await Promise.race([subagents.waitForChildren(agent), unloading.promise]);
+			await Promise.race([subagents.waitForTreeWork(agent), unloading.promise]);
 			if (!readyAfterCheckpoint(state)) return;
 		}
 		// Background jobs left by the previous round get a bounded window of their
