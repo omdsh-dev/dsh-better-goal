@@ -48,6 +48,17 @@
 
 import z from '@deepseek-ai/schemastery'
 
+export interface GoalConfig {
+  implementation: 'enhanced' | 'native'
+  nativeDefaultMaxGoalRounds: number
+  nativeBlockedAfterConsecutiveRounds: number
+  roundLimitMode: 'agent' | 'unlimited' | 'fixed'
+  roundLimit: number
+  spinHintSeconds: number
+  jobWaitSeconds: number
+  questionTimeoutSeconds: number
+}
+
 /** Plugin row id (also the dsh-settings namespace). */
 export const ENTRY_ID = 'dsh-better-goal'
 /** npm package name. */
@@ -140,19 +151,19 @@ export const Config = z.object({
 const VOLATILE_WRITE = Symbol.for('cosmokit.volatile.write')
 
 /** Whether a value is a cosmokit volatile reference. */
-function isVolatileRef(value) {
+function isVolatileRef(value: unknown): value is { get(): unknown } {
   return typeof value === 'object' && value !== null
-    && typeof value.get === 'function' && VOLATILE_WRITE in value
+    && typeof (value as { get?: unknown }).get === 'function' && VOLATILE_WRITE in value
 }
 
 /** Read one configuration field, unwrapping a volatile reference when present. */
-function fieldOf(config, key) {
-  const value = config?.[key]
+function fieldOf(config: unknown, key: string): unknown {
+  const value = (config as Record<string, unknown> | null | undefined)?.[key]
   return isVolatileRef(value) ? value.get() : value
 }
 
 /** Require one positive safe-integer cap; never coerce strings or fractions. */
-function requirePositiveSafeInteger(value, label) {
+function requirePositiveSafeInteger(value: unknown, label: string) {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) {
     throw new TypeError(`${label} must be a positive safe integer, got ${String(value)}`)
   }
@@ -160,7 +171,7 @@ function requirePositiveSafeInteger(value, label) {
 }
 
 /** Require one schema-valid job-wait window: 0 or an integer in [1, 86400]. */
-function requireJobWaitSeconds(value) {
+function requireJobWaitSeconds(value: unknown) {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_JOB_WAIT_SECONDS) {
     throw new TypeError(`jobWaitSeconds must be an integer in [0, ${MAX_JOB_WAIT_SECONDS}], got ${String(value)}`)
   }
@@ -168,7 +179,7 @@ function requireJobWaitSeconds(value) {
 }
 
 /** Require one schema-valid spin threshold: 0 or an integer in [1, 3600]. */
-function requireSpinHintSeconds(value) {
+function requireSpinHintSeconds(value: unknown) {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_SPIN_HINT_SECONDS) {
     throw new TypeError(`spinHintSeconds must be an integer in [0, ${MAX_SPIN_HINT_SECONDS}], got ${String(value)}`)
   }
@@ -176,7 +187,7 @@ function requireSpinHintSeconds(value) {
 }
 
 /** Require one schema-valid question timeout: -1 or an integer in [1, 2147483]. */
-function requireQuestionTimeout(value) {
+function requireQuestionTimeout(value: unknown) {
   if (value === -1) return -1
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1 || value > MAX_QUESTION_TIMEOUT_SECONDS) {
     throw new TypeError(
@@ -187,7 +198,7 @@ function requireQuestionTimeout(value) {
 }
 
 /** Whether a durable round cap is the compatibility unlimited sentinel. */
-export function isUnlimitedCap(value) {
+export function isUnlimitedCap(value: unknown) {
   return value === UNLIMITED_ROUNDS
 }
 
@@ -210,7 +221,7 @@ export function isUnlimitedCap(value) {
  * @returns validated positive safe integer.
  * @throws {TypeError} for an unknown mode or an invalid cap.
  */
-export function resolveRoundLimit(config, supplied, current) {
+export function resolveRoundLimit(config: unknown, supplied?: unknown, current?: unknown) {
   const mode = fieldOf(config, 'roundLimitMode') ?? DEFAULTS.roundLimitMode
   switch (mode) {
     case 'fixed':
@@ -240,14 +251,14 @@ export function resolveRoundLimit(config, supplied, current) {
  * @returns the eight canonical configuration fields as plain JSON.
  * @throws {TypeError} for an invalid mode, cap, spin threshold, job wait, or question timeout.
  */
-export function readConfig(config) {
+export function readConfig(config?: unknown): GoalConfig {
   const implementation = fieldOf(config, 'implementation') ?? DEFAULTS.implementation
-  if (!['enhanced', 'native'].includes(implementation)) throw new TypeError('implementation must be enhanced or native')
+  if (!['enhanced', 'native'].includes(implementation as string)) throw new TypeError('implementation must be enhanced or native')
   const nativeDefaultMaxGoalRounds = requirePositiveSafeInteger(fieldOf(config, 'nativeDefaultMaxGoalRounds') ?? DEFAULTS.nativeDefaultMaxGoalRounds, 'nativeDefaultMaxGoalRounds')
   const nativeBlockedAfterConsecutiveRounds = requirePositiveSafeInteger(fieldOf(config, 'nativeBlockedAfterConsecutiveRounds') ?? DEFAULTS.nativeBlockedAfterConsecutiveRounds, 'nativeBlockedAfterConsecutiveRounds')
   const mode = fieldOf(config, 'roundLimitMode')
   const roundLimitMode = mode == null ? DEFAULTS.roundLimitMode : mode
-  if (!ROUND_LIMIT_MODES.includes(roundLimitMode)) {
+  if (!ROUND_LIMIT_MODES.includes(roundLimitMode as string)) {
     throw new TypeError(`roundLimitMode must be one of ${ROUND_LIMIT_MODES.join(', ')}, got ${String(roundLimitMode)}`)
   }
   const limit = fieldOf(config, 'roundLimit')
@@ -260,5 +271,5 @@ export function readConfig(config) {
   const questionTimeoutSeconds = timeout == null
     ? DEFAULTS.questionTimeoutSeconds
     : requireQuestionTimeout(timeout)
-  return { implementation, nativeDefaultMaxGoalRounds, nativeBlockedAfterConsecutiveRounds, roundLimitMode, roundLimit, spinHintSeconds, jobWaitSeconds, questionTimeoutSeconds }
+  return { implementation: implementation as GoalConfig['implementation'], nativeDefaultMaxGoalRounds, nativeBlockedAfterConsecutiveRounds, roundLimitMode: roundLimitMode as GoalConfig['roundLimitMode'], roundLimit, spinHintSeconds, jobWaitSeconds, questionTimeoutSeconds }
 }

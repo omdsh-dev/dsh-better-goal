@@ -1,9 +1,44 @@
 import { z } from 'zod'
+import type { GoalClearChangeMeta, GoalProjection, GoalProjectionState, GoalSnapshot } from '@deepseek-ai/dsh-goal'
+import type { goalProjectionDefinition } from './service.js'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+
+export interface GoalHistoryEntry extends GoalSnapshot, Pick<GoalProjection, 'roundsStarted' | 'createdAt' | 'updatedAt'> {
+  cleared: boolean
+}
+
+export interface GoalHistoryView {
+  entries: GoalHistoryEntry[]
+  error: string | null
+}
+
+declare module '@deepseek-ai/dsh-session-projection/types' {
+  interface SessionProjectionMap {
+    'better-goal-history': GoalHistoryView
+  }
+}
+
+export interface GoalHistoryState {
+  goalState: GoalProjectionState
+  view: GoalHistoryView
+}
+
+export interface GoalHistoryDefinition {
+  key: 'better-goal-history'
+  stateVersion: number
+  stateSchema: z.ZodType<GoalHistoryState>
+  init(): GoalHistoryState
+  apply(state: GoalHistoryState, event: SessionEvent): GoalHistoryState
+  wire: {
+    viewSchema: z.ZodType<GoalHistoryView>
+    view(state: GoalHistoryState): GoalHistoryView
+  }
+}
 
 /** Read-only history uses its own projection; the native goal protocol stays v6. */
-export function createGoalHistoryDefinition(goalDefinition) {
+export function createGoalHistoryDefinition(goalDefinition: typeof goalProjectionDefinition): GoalHistoryDefinition {
   const Entry = z.object({
-    id: z.string(), revision: z.number().int().positive(), objective: z.string(),
+    id: z.string() as unknown as z.ZodType<GoalSnapshot['id']>, revision: z.number().int().positive(), objective: z.string(),
     phase: z.enum(['active', 'paused', 'blocked', 'complete']),
     maxGoalRounds: z.number().int().positive(), roundsStarted: z.number().int().nonnegative(),
     createdAt: z.number(), updatedAt: z.number(), cleared: z.boolean(),
@@ -26,7 +61,7 @@ export function createGoalHistoryDefinition(goalDefinition) {
       const id = current?.goal.id ?? previous?.goal.id
       if (id === undefined) return { ...state, goalState }
       const entry = current === null
-        ? { ...previous.goal, roundsStarted: previous.roundsStarted, createdAt: previous.createdAt, updatedAt: event.data.clearedAt, cleared: true }
+        ? { ...previous!.goal, roundsStarted: previous!.roundsStarted, createdAt: previous!.createdAt, updatedAt: (event.data as GoalClearChangeMeta).clearedAt, cleared: true }
         : { ...current.goal, roundsStarted: current.roundsStarted, createdAt: current.createdAt, updatedAt: current.updatedAt, cleared: false }
       const index = state.view.entries.findIndex((item) => item.id === id)
       const entries = [...state.view.entries]

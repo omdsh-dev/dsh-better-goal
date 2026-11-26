@@ -1,3 +1,8 @@
+import type { Context } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { GoalRef, GoalView } from '@deepseek-ai/dsh-goal'
+import type { InferValue, ParameterSchemaSpec, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { GoalConfig } from './config.js'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { resolveRoundLimit } from './config.js'
@@ -5,18 +10,18 @@ import { resolveRoundLimit } from './config.js'
 export const LEGACY_GOAL_TOOLS = ['get_goal', 'create_goal', 'update_goal']
 export const GOAL_ACTIONS = ['get', 'set', 'pause', 'complete', 'resume']
 
-export function goalRef(goal) {
+export function goalRef(goal: GoalRef) {
   return { id: goal.id, revision: goal.revision }
 }
 
-function invalid(message) {
+function invalid(message: string): never {
   throw new HarnessError(message, 'GOAL_INVALID_ACTION')
 }
 
 const RESUMABLE_PHASES = ['active', 'paused', 'blocked']
 
 /** Check every native resume guard before committing a round-cap edit. */
-function assertResumeAllowed(goal, maxGoalRounds) {
+function assertResumeAllowed(goal: GoalView, maxGoalRounds: number) {
   if (!RESUMABLE_PHASES.includes(goal.phase)) {
     throw new HarnessError(
       `cannot resume goal "${goal.id}" from phase "${goal.phase}"; expected ${RESUMABLE_PHASES.join(' or ')}`,
@@ -35,7 +40,7 @@ function assertResumeAllowed(goal, maxGoalRounds) {
 }
 
 /** Authenticate execution ownership, without imposing human-message authority. */
-export function liveGoalAgent(ctx, exec) {
+export function liveGoalAgent(ctx: Context, exec: Pick<ToolRunContext, 'agent'>) {
   const agent = exec.agent
   if (!agent || ctx.agents.get(agent.id) !== agent || agent.status !== 'running' || ctx.agents.currentInitiator() !== agent) {
     throw new HarnessError('goal requires the exact live calling Agent inside its running turn', 'GOAL_CALLER_NOT_LIVE')
@@ -44,15 +49,15 @@ export function liveGoalAgent(ctx, exec) {
 }
 
 /** Strict schemas fill omitted optional text/caps with empty strings/zero. */
-function stripStrictFiller(args) {
-  const normalized = { ...args }
+function stripStrictFiller(args: unknown) {
+  const normalized = { ...(args as Record<string, unknown>) }
   if (normalized.objective === '') delete normalized.objective
   if (normalized.max_goal_rounds === 0) delete normalized.max_goal_rounds
   return normalized
 }
 
 /** Resolve the same live host policy the native service will apply. */
-function roundPolicy(ctx, config) {
+function roundPolicy(ctx: Context, config: unknown) {
   const provider = ctx.get('betterGoalConfig')
   if (provider === undefined) return config
   if (typeof provider.get !== 'function') throw new TypeError('betterGoalConfig provider must expose get()')
@@ -60,30 +65,30 @@ function roundPolicy(ctx, config) {
 }
 
 /** Five model actions; native mutations receive refs derived from live state. */
-export function executeGoalAction(ctx, agent, input, config) {
+export function executeGoalAction(ctx: Context, agent: Agent, input: unknown, config: unknown) {
   const args = stripStrictFiller(input)
-  if (!GOAL_ACTIONS.includes(args.action)) invalid('Unknown goal action')
+  if (!GOAL_ACTIONS.includes(args.action as string)) invalid('Unknown goal action')
   for (const key of Object.keys(args)) {
     if (!['action', 'objective', 'max_goal_rounds'].includes(key)) invalid(`Unknown goal parameter: ${key}`)
   }
   if (args.action !== 'set' && args.objective !== undefined) invalid('objective is only valid for set')
-  if (!['set', 'resume'].includes(args.action) && args.max_goal_rounds !== undefined) invalid('max_goal_rounds is only valid for set/resume')
+  if (!['set', 'resume'].includes(args.action as string) && args.max_goal_rounds !== undefined) invalid('max_goal_rounds is only valid for set/resume')
   if (args.action === 'set' && (typeof args.objective !== 'string' || !args.objective.trim())) invalid('set requires a non-empty objective')
-  if (args.max_goal_rounds !== undefined && (!Number.isSafeInteger(args.max_goal_rounds) || args.max_goal_rounds < 1)) {
+  if (args.max_goal_rounds !== undefined && (!Number.isSafeInteger(args.max_goal_rounds) || (args.max_goal_rounds as number) < 1)) {
     throw new TypeError('max_goal_rounds must be a positive safe integer')
   }
 
-  const goals = ctx.get('goals')
+  const goals = ctx.get('goals')!
   const current = goals.get(agent)
   if (args.action === 'get') return { goal: current ?? null }
   if (args.action === 'set') {
     // Validate the entire create request and live host policy before clearing.
     // Native create supplies a fresh identity, zero rounds and armed activation.
     const request = {
-      objective: args.objective,
+      objective: args.objective as string,
       maxGoalRounds: resolveRoundLimit(roundPolicy(ctx, config), args.max_goal_rounds),
     }
-    if (current && current.phase !== 'complete') goals.clear(agent, goalRef(current))
+    if (current && current.phase !== 'complete') goals.clear(agent, goalRef(current!))
     return { goal: goals.create(agent, request) }
   }
   if (!current) invalid('No goal is set; use set first')
@@ -92,10 +97,10 @@ export function executeGoalAction(ctx, agent, input, config) {
     assertResumeAllowed(current, cap)
     const goal = cap === current.maxGoalRounds
       ? current
-      : goals.edit(agent, goalRef(current), { maxGoalRounds: cap })
+      : goals.edit(agent, goalRef(current!), { maxGoalRounds: cap })
     return { goal: goals.resume(agent, goalRef(goal)) }
   }
-  const ref = goalRef(current)
+  const ref = goalRef(current!)
   if (args.action === 'complete') return { goal: goals.complete(agent, ref) }
   // pause keeps the native record shape: no reason is stored; the agent states
   // what it needs in its reply.
@@ -103,8 +108,8 @@ export function executeGoalAction(ctx, agent, input, config) {
 }
 
 /** Schema is refreshed between steps; the execution policy always reads live config. */
-export function createGoalTool(ctx, readConfig) {
-  const parameters = {
+export function createGoalTool(ctx: Context, readConfig: () => GoalConfig) {
+  const parameters: ParameterSchemaSpec = {
     action: { type: 'string', required: true, enum: GOAL_ACTIONS, description: 'Get the current goal, set a replacement goal, pause continuation when the user is needed, complete with proof, or resume continuation.' },
     objective: { type: 'string', description: 'Required for set: the full replacement completion objective. Preserve the entire user-requested scope; set creates a fresh goal and resets its rounds.' },
   }
@@ -121,7 +126,8 @@ export function createGoalTool(ctx, readConfig) {
     },
     execute(args, exec) {
       const agent = liveGoalAgent(ctx, exec)
-      return Promise.resolve(executeGoalAction(ctx, agent, args, readConfig()))
+      // GoalView is lossless JSON, but its host interface has no JSON index signature.
+      return Promise.resolve(executeGoalAction(ctx, agent, args, readConfig()) as unknown as Record<string, InferValue<{ type: 'json' }>> )
     },
     presentCall: (args) => ({ card: 'generic', title: `${args.action} goal`, kind: args.action === 'get' ? 'read' : 'other' }),
   })

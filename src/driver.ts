@@ -1,7 +1,50 @@
 /** Adapted from DeepSeek Harness (MIT); see third-party/NOTICE. */
 import { isDeepStrictEqual } from "node:util";
 import { createUserMessage } from "@deepseek-ai/dsh-llm";
+import type { Context } from "@deepseek-ai/cordis";
+import type { Agent } from "@deepseek-ai/dsh-agent";
+import type { GoalMessageSource, GoalRef, GoalView } from "@deepseek-ai/dsh-goal";
+import type { MessageSource, UserMessage } from "@deepseek-ai/dsh-llm";
+import type { SessionEvent } from "@deepseek-ai/dsh-session";
+import type { GoalConfig } from "./config.js";
 import { DEFAULTS, isUnlimitedCap, resolveRoundLimit } from "./config.js";
+interface RunningJob {
+	id: string;
+	label: string;
+	kind: string;
+	status: string;
+}
+
+interface Jobs {
+	list(sessionId: Agent["id"]): RunningJob[];
+	wait(id: string, timeoutMs: number, sessionId: Agent["id"]): Promise<unknown>;
+}
+
+type RoundIdentity = Pick<GoalMessageSource, "goalId" | "revision" | "round">;
+
+interface RoundAttempt extends RoundIdentity {
+	messageId: UserMessage["id"];
+	content: UserMessage["content"];
+	phase: "queued" | "claimed" | "admitted";
+	cancelled: boolean;
+	stale: boolean;
+}
+
+interface DriverState {
+	agent: Agent;
+	attempt: RoundAttempt | undefined;
+	competingQueued: boolean;
+	needsCheckpoint: boolean;
+	requested: boolean;
+	run: Promise<void> | undefined;
+	stopping: boolean;
+	interrupted: GoalRef | undefined;
+	turnStartedAt: number | undefined;
+	lastGoalTurnMs: number | undefined;
+	runningJobs: RunningJob[] | undefined;
+	goalTurnId?: GoalView["id"];
+}
+
 //#region lib/types/prompt.js
 /** Model-visible continuation prompt for one same-session goal round. */
 /**
@@ -12,7 +55,7 @@ import { DEFAULTS, isUnlimitedCap, resolveRoundLimit } from "./config.js";
 * @param runningJobs - background jobs still running when the wait window closed.
 * @returns a fresh one-block prompt for `Agent.followup()`.
 */
-function renderGoalRoundPrompt(goal, round, spin = false, runningJobs = []) {
+function renderGoalRoundPrompt(goal: GoalView, round: number, spin = false, runningJobs: readonly RunningJob[] = []): UserMessage["content"] {
   const limit = isUnlimitedCap(goal.maxGoalRounds) ? "unlimited" : goal.maxGoalRounds;
   const spinWarning = spin ? `
 Your previous goal turn ended very quickly, so you are probably ending turns to wait for something. This turn, either block until the result you need arrives, do substantive work, or call goal(action: "pause") and say what is missing.
@@ -53,22 +96,22 @@ const inject = [
 	"sessions"
 ];
 /** Whether a source identifies an automatic, positive-numbered goal round. */
-function isGoalRoundSource(source) {
+function isGoalRoundSource(source: MessageSource): source is GoalMessageSource {
 	return source.kind === "goal" && source.round > 0;
 }
 /** Compare a source to one reserved identity. */
-function sameRound(source, round) {
+function sameRound(source: MessageSource & Partial<RoundIdentity>, round: RoundIdentity) {
 	return source.goalId === round.goalId && source.revision === round.revision && source.round === round.round;
 }
 /** Compare the complete queued record to the driver's reservation. */
-function sameQueued(content, source, attempt) {
+function sameQueued(content: UserMessage["content"], source: MessageSource, attempt: RoundAttempt) {
 	return isGoalRoundSource(source) && sameRound(source, attempt) && isDeepStrictEqual(content, attempt.content);
 }
 /** Terminal job states (dsh-jobs-local `isTerminal`). */
 const JOB_TERMINAL = new Set(["completed", "killed", "failed"]);
 
 /** Whether one job projection is still live. */
-function jobLive(job) {
+function jobLive(job: RunningJob) {
 	return !JOB_TERMINAL.has(job.status);
 }
 
@@ -86,7 +129,7 @@ function jobLive(job) {
  * @param warn - logger sink for the failure paths.
  * @returns the jobs still running when the budget or the driver ran out.
  */
-async function waitForJobs(jobs, agent, limitMs, unloading, warn) {
+async function waitForJobs(jobs: Jobs, agent: Agent, limitMs: number, unloading: Promise<void>, warn: (text: string) => void): Promise<RunningJob[]> {
 	const deadline = Date.now() + limitMs;
 	const running = () => {
 		try {
@@ -116,29 +159,29 @@ async function waitForJobs(jobs, agent, limitMs, unloading, warn) {
 }
 
 /** Exact current ref for a view. */
-function goalRef(goal) {
+function goalRef(goal: GoalView): GoalRef {
 	return {
 		id: goal.id,
 		revision: goal.revision
 	};
 }
 /** Human-readable unexpected values for logs. */
-function renderThrown(value) {
+function renderThrown(value: unknown) {
 	return value instanceof Error ? value.message : String(value);
 }
 /** Install automatic same-session continuation and its race fences. */
-function agentPlanning(agent) {
-    const mode = agent.ctx?.get("planMode")?.get(agent);
+function agentPlanning(agent: Agent) {
+    const mode = (agent.ctx?.get("planMode") as { get(agent: Agent): { active?: boolean; pending?: unknown } | undefined } | undefined)?.get(agent);
     return Boolean(mode?.active || mode?.pending);
 }
-function apply(ctx, readConfig = () => DEFAULTS) {
-	const states = /* @__PURE__ */ new Map();
-	const unloading = Promise.withResolvers();
+function apply(ctx: Context, readConfig: () => GoalConfig = () => DEFAULTS) {
+	const states = /* @__PURE__ */ new Map<Agent, DriverState>();
+	const unloading = (Promise as PromiseConstructor & { withResolvers(): { promise: Promise<void>; resolve(): void } }).withResolvers();
 	/** Create state for an exact currently live agent. */
-	function stateFor(agent) {
+	function stateFor(agent: Agent): DriverState {
 		const existing = states.get(agent);
 		if (existing !== void 0) return existing;
-		const state = {
+		const state: DriverState = {
 			agent,
 			attempt: void 0,
 			competingQueued: false,
@@ -155,24 +198,24 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 		return state;
 	}
 	/** Read only when the exact Agent remains live. */
-	function currentGoal(state) {
+	function currentGoal(state: DriverState) {
 		if (ctx.agents.get(state.agent.id) !== state.agent) return void 0;
 		return ctx.goals.get(state.agent);
 	}
 	/** Whether a goal may receive automatic rounds. */
-	function drivable(goal) {
+	function drivable(goal: GoalView | undefined): goal is GoalView {
 		return goal !== void 0 && goal.phase === "active" && goal.activation === "armed";
 	}
 	/** Whether this exact lifecycle is quiescent with no competing prompt. */
-	function readyToDrive(state) {
+	function readyToDrive(state: DriverState) {
 		return ctx.fiber.state === 2 && !state.stopping && ctx.agents.get(state.agent.id) === state.agent && state.agent.status === "idle" && !state.competingQueued && !agentPlanning(state.agent);
 	}
 	/** Recheck every condition that an awaited checkpoint may have changed. */
-	function readyAfterCheckpoint(state) {
+	function readyAfterCheckpoint(state: DriverState) {
 		return readyToDrive(state) && !state.needsCheckpoint;
 	}
 	/** Remove automatic authority while preserving the durable phase. */
-	function disarm(state) {
+	function disarm(state: DriverState) {
 		try {
 			if (currentGoal(state)?.activation === "armed") ctx.goals.disarm(state.agent);
 		} catch (error) {
@@ -180,15 +223,15 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 		}
 	}
 	/** Preserve claimed step context when this driver drops only its own round. */
-	function restoreOtherClaimed(agent, messages, messageId) {
+	function restoreOtherClaimed(agent: Agent, messages: readonly UserMessage[], messageId: UserMessage["id"]) {
 		const retained = messages.filter((message) => message.id !== messageId && !(message.source.kind === "goal" && message.source.round === 0));
-		for (const message of retained.toReversed()) {
+		for (const message of (retained as typeof retained & { toReversed(): UserMessage[] }).toReversed()) {
 			if (agent.inbox.nextStep.some((candidate) => candidate.id === message.id) || agent.inbox.nextTurn.some((candidate) => candidate.id === message.id)) continue;
 			agent.inbox.prepend("next-step", message);
 		}
 	}
 	/** Process admitted work at quiescence, then reserve at most one next round. */
-	async function drive(state) {
+	async function drive(state: DriverState) {
 		const { agent } = state;
 		if (!readyToDrive(state)) return;
 		if (state.needsCheckpoint) {
@@ -217,7 +260,7 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 		}
 		let goal = currentGoal(state);
 		if (!drivable(goal)) return;
-		const subagents = ctx.get("subagents");
+		const subagents = ctx.get("subagents") as { waitForTreeWork(agent: Agent): Promise<unknown> } | undefined;
 		if (subagents !== void 0) {
 			await Promise.race([subagents.waitForTreeWork(agent), unloading.promise]);
 			if (!readyAfterCheckpoint(state)) return;
@@ -226,7 +269,7 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 		// own. They are never cancelled; when the window closes the round starts
 		// and names them. The first round never waits: there is no previous turn
 		// whose background work could have been cut short.
-		const jobs = goal.roundsStarted > 0 ? ctx.get("jobs") : void 0;
+		const jobs = goal.roundsStarted > 0 ? ctx.get("jobs") as Jobs | undefined : void 0;
 		if (jobs !== void 0) {
 			const jobMs = readConfig().jobWaitSeconds * 1000;
 			state.runningJobs = await waitForJobs(jobs, agent, jobMs, unloading.promise,
@@ -285,12 +328,12 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 		}
 	}
 	/** Coalesce triggers onto one agent-local serialized driver. */
-	function requestDrive(state) {
+	function requestDrive(state: DriverState) {
 		/* v8 ignore next -- teardown may race a final trigger after synchronously closing the step fence */
 		if (state.stopping) return;
 		state.requested = true;
 		if (state.run !== void 0) return;
-		let run;
+		let run: Promise<void>;
 		try {
 			run = ctx.agents.withoutInitiator(async () => {
 				while (state.requested && !state.stopping) {
@@ -332,7 +375,7 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 		ctx.on("agent/disposed", ({ agent }) => {
 			states.delete(agent);
 		});
-		ctx.on("agent/created", ({ agent }) => {
+		ctx.on("agent/created", ({ agent }): undefined => {
 			const state = stateFor(agent);
 			state.attempt = void 0;
 			state.competingQueued = false;
@@ -388,7 +431,7 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 			const attempt = stateFor(agent).attempt;
 			if (attempt !== void 0 && sameQueued(message.content, message.source, attempt)) attempt.cancelled = true;
 		});
-		ctx.on("session/event", (session, event) => {
+		ctx.on("session/event", (session, event: SessionEvent | { type: "plan/mode"; data: { active: boolean } }) => {
 			const agent = ctx.agents.get(session.id);
 			if (agent === void 0 || agent.session !== session) return;
 			const state = stateFor(agent);
@@ -411,7 +454,7 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 						// cut short by the user or the token cap says nothing about the model.
 						const kind = event.data.reason.kind;
 						const measured = state.goalTurnId !== void 0 && state.turnStartedAt !== void 0 && kind !== "aborted" && kind !== "max-tokens";
-						state.lastGoalTurnMs = measured ? Date.now() - state.turnStartedAt : void 0;
+						state.lastGoalTurnMs = measured ? Date.now() - state.turnStartedAt! : void 0;
 						state.turnStartedAt = void 0;
 					}
 					if (event.data.reason.kind === "max-tokens") {
@@ -435,7 +478,7 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 			}
 		});
 		/** Fail closed unless the queued prompt still owns the exact live revision. */
-		function validReservation(state, content, source) {
+		function validReservation(state: DriverState, content: UserMessage["content"], source: MessageSource & Partial<RoundIdentity>) {
 			const attempt = state.attempt;
 			const goal = currentGoal(state);
 			return ctx.fiber.state === 2 && !state.stopping && attempt !== void 0 && attempt.phase === "claimed" && !attempt.stale && sameQueued(content, source, attempt) && goal !== void 0 && goal.id === source.goalId && goal.revision === source.revision && goal.phase === "active" && goal.activation === "armed" && source.round === goal.roundsStarted + 1 && resolveRoundLimit(readConfig(), undefined, goal.maxGoalRounds) === goal.maxGoalRounds && !agentPlanning(state.agent);
@@ -443,7 +486,7 @@ function apply(ctx, readConfig = () => DEFAULTS) {
 		ctx.on("agent/pre-step", async ({ agent, messages, signal }, next) => {
 			const submitted = messages.find((message) => isGoalRoundSource(message.source));
 			if (submitted === void 0) return next();
-			const { content, source } = submitted;
+			const { content, source } = submitted as UserMessage & { source: GoalMessageSource };
 			const state = stateFor(agent);
 			let valid = false;
 			try {

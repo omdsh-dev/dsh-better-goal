@@ -19,6 +19,20 @@
  */
 import { randomUUID } from "node:crypto";
 import { Service } from "@deepseek-ai/cordis";
+import type { Context } from "@deepseek-ai/cordis";
+import type { Agent } from "@deepseek-ai/dsh-agent";
+import type { Session, SessionEvent } from "@deepseek-ai/dsh-session";
+import type { MessageSource } from "@deepseek-ai/dsh-llm";
+import type { ProjectionHandle } from "@deepseek-ai/dsh-session-projection";
+import type {
+  Config as ServiceConfig, ResolvedConfig, CreateGoalRequest, CreateGoalResult,
+  EditGoalRequest, FoldedGoal, GoalActivation, GoalBlockReason, GoalChangeMeta,
+  GoalErrorCode, GoalMessageSource, GoalOperation,
+  GoalPhase, GoalProjection, GoalProjectionState, GoalRef, GoalSnapshot,
+  GoalSnapshotChangeMeta, GoalView,
+  goalProjectionDefinition as nativeGoalProjectionDefinition,
+} from "@deepseek-ai/dsh-goal";
+import type { GoalConfig } from "./config.js";
 import z from "@deepseek-ai/schemastery";
 import { z as zod } from "zod";
 import { agentEvents } from "@deepseek-ai/dsh-agent";
@@ -30,13 +44,29 @@ import { resolveRoundLimit } from "./config.js";
 /** Version of the goal change embedded in a round-zero message source. */
 export const GOAL_CHANGE_VERSION = 1;
 
+type GoalIdType = GoalRef["id"];
+
+interface GoalFoldState {
+  goal: GoalSnapshot | undefined;
+  roundsStarted: number;
+  createdAt: number | undefined;
+  updatedAt: number | undefined;
+  lastRef: GoalRef | undefined;
+  seenGoalIds: Set<GoalIdType>;
+}
+
+interface GoalRuntimeState {
+  activation: GoalActivation;
+  pendingActivation: { offset: number; activation: GoalActivation } | undefined;
+}
+
 /**
  * Brand a string as a goal id.
  * @param {string} id - raw goal identifier.
  * @returns {string} the same string with the compile-time brand.
  */
-export function GoalId(id) {
-  return id;
+export function GoalId(id: string): GoalIdType {
+  return id as GoalIdType;
 }
 
 /** Error returned by the goal domain boundary. */
@@ -45,7 +75,7 @@ export class GoalError extends HarnessError {
    * @param {string} message - human-readable rejection reason.
    * @param {string} code - stable machine-routable classification.
    */
-  constructor(message, code) {
+  constructor(message: string, code: GoalErrorCode) {
     super(message, code);
   }
 }
@@ -67,7 +97,7 @@ const PHASES = new Set(["active", "paused", "blocked", "complete"]);
  * Build an empty replay accumulator.
  * @returns {object} mutable state with no current goal or prior ref.
  */
-export function emptyGoalFoldState() {
+export function emptyGoalFoldState(): GoalFoldState {
   return {
     goal: undefined,
     roundsStarted: 0,
@@ -79,12 +109,12 @@ export function emptyGoalFoldState() {
 }
 
 /** Whether a value is a JSON record rather than an array. */
-function isRecord(value) {
+function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Require one positive safe integer. */
-function positiveInteger(value, field) {
+function positiveInteger(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 1) {
     throw new Error(`goal change ${field} must be a positive safe integer`);
   }
@@ -92,7 +122,7 @@ function positiveInteger(value, field) {
 }
 
 /** Require one non-negative safe integer. */
-function nonNegativeInteger(value, field) {
+function nonNegativeInteger(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
     throw new Error(`goal change ${field} must be a non-negative safe integer`);
   }
@@ -100,7 +130,7 @@ function nonNegativeInteger(value, field) {
 }
 
 /** Decode one canonical blocker explanation. */
-function decodeBlockReason(value) {
+function decodeBlockReason(value: unknown): GoalBlockReason {
   if (
     !isRecord(value) ||
     Object.keys(value).sort().join(",") !== "code,message"
@@ -128,7 +158,7 @@ function decodeBlockReason(value) {
 }
 
 /** Decode and validate one snapshot. */
-function decodeSnapshot(value) {
+function decodeSnapshot(value: unknown): GoalSnapshot {
   if (!isRecord(value)) throw new Error("goal change goal must be a record");
   if (typeof value["id"] !== "string" || value["id"].length === 0) {
     throw new Error("goal change goal.id must be a non-empty string");
@@ -148,7 +178,7 @@ function decodeSnapshot(value) {
   ) {
     throw new Error("goal change goal.phase is invalid");
   }
-  const phase = value["phase"];
+  const phase = value["phase"] as GoalPhase;
   const expectedKeys =
     phase === "blocked"
       ? "blockedReason,id,maxGoalRounds,objective,phase,revision"
@@ -158,7 +188,7 @@ function decodeSnapshot(value) {
       `goal change goal for phase ${phase} must have exactly ${expectedKeys} fields`,
     );
   }
-  const snapshot = {
+  const snapshot: { -readonly [K in keyof GoalSnapshot]: GoalSnapshot[K] } = {
     id: GoalId(value["id"]),
     revision: positiveInteger(value["revision"], "goal.revision"),
     objective: value["objective"],
@@ -172,7 +202,7 @@ function decodeSnapshot(value) {
 }
 
 /** Decode and validate one ref. */
-function decodeRef(value) {
+function decodeRef(value: unknown): GoalRef {
   if (
     !isRecord(value) ||
     Object.keys(value).sort().join(",") !== "id,revision"
@@ -197,7 +227,7 @@ function decodeRef(value) {
  * @returns {object | undefined} validated goal change or `undefined` for
  *   another value kind.
  */
-export function decodeGoalChange(value) {
+export function decodeGoalChange(value: unknown): GoalChangeMeta | undefined {
   if (!isRecord(value) || value["kind"] !== "goal/change") return undefined;
   if (value["version"] !== 1) {
     throw new Error(`unsupported goal change version ${String(value["version"])}`);
@@ -251,7 +281,7 @@ export function decodeGoalChange(value) {
   return {
     kind: "goal/change",
     version: 1,
-    operation: value["operation"],
+    operation: value["operation"] as GoalSnapshotChangeMeta["operation"],
     goal: decodeSnapshot(value["goal"]),
     roundsStarted: nonNegativeInteger(value["roundsStarted"], "roundsStarted"),
     createdAt,
@@ -260,7 +290,7 @@ export function decodeGoalChange(value) {
 }
 
 /** Narrow model attribution to a valid goal source. */
-function goalSource(source) {
+function goalSource(source: MessageSource): GoalMessageSource | undefined {
   if (source.kind !== "goal") return undefined;
   if (
     typeof source.goalId !== "string" ||
@@ -276,7 +306,7 @@ function goalSource(source) {
 }
 
 /** Require two snapshots to retain fields that only `edit` may replace. */
-function requireSameDefinition(current, next, operation) {
+function requireSameDefinition(current: GoalSnapshot, next: GoalSnapshot, operation: GoalOperation) {
   if (
     next.objective !== current.objective ||
     next.maxGoalRounds !== current.maxGoalRounds
@@ -288,7 +318,7 @@ function requireSameDefinition(current, next, operation) {
 }
 
 /** Require one exact next revision of the current goal. */
-function requireNextRevision(current, next, operation) {
+function requireNextRevision(current: GoalRef, next: GoalRef, operation: GoalOperation) {
   if (
     next.id !== current.id ||
     next.revision !== current.revision + 1
@@ -300,7 +330,7 @@ function requireNextRevision(current, next, operation) {
 }
 
 /** Validate one non-create snapshot operation against the preceding projection. */
-function validateSnapshotTransition(state, change, current) {
+function validateSnapshotTransition(state: GoalFoldState, change: GoalSnapshotChangeMeta, current: GoalSnapshot) {
   const next = change.goal;
   requireNextRevision(current, next, change.operation);
   if (state.updatedAt === undefined) {
@@ -370,7 +400,7 @@ function validateSnapshotTransition(state, change, current) {
  * @returns {{id: string, revision: number}} stable identity used to
  *   reconcile a deferred change with its log event.
  */
-export function goalChangeRef(change) {
+export function goalChangeRef(change: GoalChangeMeta): GoalRef {
   return change.operation === "clear"
     ? change.cleared
     : { id: change.goal.id, revision: change.goal.revision };
@@ -381,7 +411,7 @@ export function goalChangeRef(change) {
  * @param {object} state - preceding durable goal projection.
  * @param {object} change - decoded full snapshot or clear tombstone.
  */
-export function applyGoalChange(state, change) {
+export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta) {
   const ref = goalChangeRef(change);
   if (change.operation === "clear") {
     const current = state.goal;
@@ -434,7 +464,7 @@ export function applyGoalChange(state, change) {
  * @param {object} state - mutable fold accumulator.
  * @param {object} event - next event in sequence order.
  */
-export function applyGoalEvent(state, event) {
+export function applyGoalEvent(state: GoalFoldState, event: SessionEvent) {
   if (event.type === "goal/change") {
     const change = decodeGoalChange(event.data);
     if (change === undefined) {
@@ -470,7 +500,7 @@ export function applyGoalEvent(state, event) {
  * @param {readonly object[]} events - session events in sequence order.
  * @returns {object} fresh durable projection; activation is deliberately absent.
  */
-export function foldGoal(events) {
+export function foldGoal(events: readonly SessionEvent[]): FoldedGoal {
   const state = emptyGoalFoldState();
   for (const event of events) applyGoalEvent(state, event);
   return {
@@ -486,7 +516,7 @@ export function foldGoal(events) {
 const goalProjectionSchema = zod.union([
   zod.object({
     goal: zod.object({
-      id: zod.string().min(1),
+      id: zod.string().min(1) as unknown as zod.ZodType<GoalIdType>,
       revision: zod.number().int().positive(),
       objective: zod.string().min(1),
       phase: zod.union([
@@ -515,7 +545,7 @@ const goalProjectionStateSchema = zod
   .object({
     current: goalProjectionSchema,
     seenGoalIds: zod
-      .array(zod.string().min(1))
+      .array(zod.string().min(1) as unknown as zod.ZodType<GoalIdType>)
       .refine((ids) => new Set(ids).size === ids.length, {
         message: "seen goal ids must be unique",
       }),
@@ -545,7 +575,7 @@ const goalProjectionStateSchema = zod
   });
 
 /** Build strict fold state from one checkpoint-safe projection state. */
-function goalFoldState(state) {
+function goalFoldState(state: GoalProjectionState): GoalFoldState {
   return {
     goal: state.current?.goal,
     roundsStarted: state.current?.roundsStarted ?? 0,
@@ -557,8 +587,8 @@ function goalFoldState(state) {
 }
 
 /** Convert strict fold state into checkpoint-safe projection state. */
-function goalProjectionState(state) {
-  let current = null;
+function goalProjectionState(state: GoalFoldState): GoalProjectionState {
+  let current: GoalProjection | null = null;
   if (state.goal !== undefined) {
     const { createdAt, updatedAt } = state;
     if (createdAt === undefined || updatedAt === undefined) {
@@ -588,7 +618,7 @@ function goalProjectionState(state) {
  * @returns {object} the next projection (same reference when the event is
  *   unrelated).
  */
-export function applyGoalProjection(state, event) {
+export function applyGoalProjection(state: GoalProjectionState, event: SessionEvent): GoalProjectionState {
   if (state.failure !== null) return state;
   if (
     event.type !== "goal/change" &&
@@ -610,7 +640,13 @@ export function applyGoalProjection(state, event) {
 }
 
 /** Strict host goal state with the native cropped client value. */
-export const goalProjectionDefinition = {
+export const goalProjectionDefinition: Omit<typeof nativeGoalProjectionDefinition, "stateSchema" | "wire"> & {
+  stateSchema: zod.ZodType<GoalProjectionState>;
+  wire: {
+    viewSchema: zod.ZodType<GoalProjection | null>;
+    view(state: GoalProjectionState): GoalProjection | null;
+  };
+} = {
   key: "goal",
   stateSchema: goalProjectionStateSchema,
   init: () => ({
@@ -631,14 +667,14 @@ export const goalProjectionDefinition = {
  * @param {unknown} value - candidate cap.
  * @returns {number} the validated cap.
  */
-export function resolveMaxGoalRounds(value) {
-  if (!Number.isSafeInteger(value) || value < 1) {
+export function resolveMaxGoalRounds(value: unknown): number {
+  if (!Number.isSafeInteger(value) || (value as number) < 1) {
     throw new GoalError(
       "maxGoalRounds must be a positive safe integer",
       "GOAL_INVALID_MAX_ROUNDS",
     );
   }
-  return value;
+  return value as number;
 }
 
 /**
@@ -646,7 +682,7 @@ export function resolveMaxGoalRounds(value) {
  * @param {unknown} value - candidate objective.
  * @returns {string} the trimmed objective.
  */
-export function resolveObjective(value) {
+export function resolveObjective(value: unknown): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw new GoalError(
       "goal objective must be a non-empty string",
@@ -662,7 +698,7 @@ export function resolveObjective(value) {
  * @param {number} defaultMaxGoalRounds - deployment default.
  * @returns {{objective: string, maxGoalRounds: number}} normalized create input.
  */
-export function resolveCreateGoal(request, defaultMaxGoalRounds) {
+export function resolveCreateGoal(request: { objective?: unknown; maxGoalRounds?: unknown }, defaultMaxGoalRounds: number): Required<CreateGoalRequest> {
   return {
     objective: resolveObjective(request.objective),
     maxGoalRounds: resolveMaxGoalRounds(
@@ -676,10 +712,10 @@ export function resolveCreateGoal(request, defaultMaxGoalRounds) {
  * @param {unknown} reason - candidate `{ code, message }`.
  * @returns {{code: string, message: string}} normalized reason.
  */
-export function resolveBlockReason(reason) {
+export function resolveBlockReason(reason: unknown): GoalBlockReason {
   const record =
     typeof reason === "object" && reason !== null && !Array.isArray(reason)
-      ? reason
+      ? reason as Record<string, unknown>
       : undefined;
   const code = record?.["code"];
   const message = record?.["message"];
@@ -709,7 +745,11 @@ export class GoalService extends TypertRemoteService {
 
   static Config = z.object({ defaultMaxGoalRounds: z.number().default(256) });
 
-  constructor(ctx, config = {}) {
+  declare resolved: ResolvedConfig;
+  declare runtimeStates: WeakMap<Session, GoalRuntimeState>;
+  declare goalProjectionHandle: ProjectionHandle<GoalProjectionState>;
+
+  constructor(ctx: Context, config: ServiceConfig = {}) {
     super(ctx, "goals");
     this.resolved = {
       defaultMaxGoalRounds: resolveMaxGoalRounds(
@@ -721,8 +761,8 @@ export class GoalService extends TypertRemoteService {
 
   async [Service.init]() {
     const ctx = this.ctx;
-    this.goalProjectionHandle = await ctx.sessionProjections.register(goalProjectionDefinition);
-    ctx.on("agent/created", ({ agent }) => {
+    this.goalProjectionHandle = await ctx.sessionProjections.register(goalProjectionDefinition as unknown as typeof nativeGoalProjectionDefinition);
+    ctx.on("agent/created", ({ agent }): undefined => {
       this.setActivation(agent.session, "disarmed");
     });
     ctx.on("session/event", (session, event) => {
@@ -744,7 +784,7 @@ export class GoalService extends TypertRemoteService {
    *   current.
    * @throws {GoalError} when the agent is not the registry's live instance.
    */
-  get(agent) {
+  get(agent: Agent): GoalView | undefined {
     this.assertLive(agent);
     return this.view(this.state(agent.session), this.runtimeState(agent.session));
   }
@@ -757,7 +797,7 @@ export class GoalService extends TypertRemoteService {
    * @returns {object | undefined} a fresh disarmed view, or `undefined` when no
    *   goal is current.
    */
-  disarm(agent) {
+  disarm(agent: Agent): GoalView | undefined {
     this.assertLive(agent);
     this.setActivation(agent.session, "disarmed");
     const runtime = this.runtimeState(agent.session);
@@ -772,7 +812,7 @@ export class GoalService extends TypertRemoteService {
    *   and optional round cap.
    * @returns {object} the created live view.
    */
-  create(agent, request) {
+  create(agent: Agent, request: CreateGoalRequest): GoalView {
     const hostConfig = this.hostGoalConfig();
     const spec = hostConfig === undefined
       ? resolveCreateGoal(request, this.resolved.defaultMaxGoalRounds)
@@ -789,7 +829,7 @@ export class GoalService extends TypertRemoteService {
       );
     }
     const now = Date.now();
-    const goal = {
+    const goal: GoalSnapshot = {
       id: GoalId(`goal-${randomUUID()}`),
       revision: 1,
       objective: spec.objective,
@@ -816,7 +856,7 @@ export class GoalService extends TypertRemoteService {
    *   one replacement field.
    * @returns {object} the edited view.
    */
-  edit(agent, ref, request) {
+  edit(agent: Agent, ref: GoalRef, request: EditGoalRequest): GoalView {
     const [state, runtime] = this.prepareMutation(agent);
     const currentState = this.expectCurrent(state, ref);
     const current = currentState.goal;
@@ -866,7 +906,7 @@ export class GoalService extends TypertRemoteService {
    * @param {{id: string, revision: number}} ref - expected current revision.
    * @returns {object} the paused view.
    */
-  pause(agent, ref) {
+  pause(agent: Agent, ref: GoalRef): GoalView {
     return this.transition(
       agent,
       ref,
@@ -884,11 +924,11 @@ export class GoalService extends TypertRemoteService {
    * @param {{id: string, revision: number}} ref - expected current revision.
    * @returns {object} the active view.
    */
-  resume(agent, ref) {
+  resume(agent: Agent, ref: GoalRef): GoalView {
     const [state, runtime] = this.prepareMutation(agent);
     const currentState = this.expectCurrent(state, ref);
     const current = currentState.goal;
-    const resumable = ["active", "paused", "blocked"];
+    const resumable: GoalPhase[] = ["active", "paused", "blocked"];
     if (!resumable.includes(current.phase)) {
       throw this.transitionError(current, "resume", resumable);
     }
@@ -926,10 +966,10 @@ export class GoalService extends TypertRemoteService {
       const afterEdit = this.state(agent.session);
       return this.commitCurrent(
         agent,
-        afterEdit,
+        afterEdit!,
         runtime,
         "resume",
-        this.withPhase(afterEdit.goal, "active"),
+        this.withPhase(afterEdit!.goal, "active"),
         "armed",
       );
     }
@@ -949,7 +989,7 @@ export class GoalService extends TypertRemoteService {
    * @param {{id: string, revision: number}} ref - expected current revision.
    * @returns {object} the completed view.
    */
-  complete(agent, ref) {
+  complete(agent: Agent, ref: GoalRef): GoalView {
     return this.transition(
       agent,
       ref,
@@ -970,7 +1010,7 @@ export class GoalService extends TypertRemoteService {
    *   human-readable explanation.
    * @returns {object} the blocked view with its durable reason.
    */
-  block(agent, ref, reason) {
+  block(agent: Agent, ref: GoalRef, reason: GoalBlockReason): GoalView {
     const [state, runtime] = this.prepareMutation(agent);
     const currentState = this.expectCurrent(state, ref);
     const current = currentState.goal;
@@ -997,12 +1037,12 @@ export class GoalService extends TypertRemoteService {
    * @returns {{id: string, revision: number}} the tombstone ref whose revision
    *   is one past the cleared snapshot.
    */
-  clear(agent, ref) {
+  clear(agent: Agent, ref: GoalRef): GoalRef {
     const [state, runtime] = this.prepareMutation(agent);
     const currentState = this.expectCurrent(state, ref);
     const current = currentState.goal;
     const tombstone = { id: current.id, revision: current.revision + 1 };
-    const change = {
+    const change: GoalChangeMeta = {
       kind: "goal/change",
       version: 1,
       operation: "clear",
@@ -1018,7 +1058,7 @@ export class GoalService extends TypertRemoteService {
    * native baseline; a present provider must expose a synchronous `get()`.
    * @returns {object | undefined} the current plain configuration snapshot.
    */
-  hostGoalConfig() {
+  hostGoalConfig(): GoalConfig | undefined {
     const provider = this.ctx.get("betterGoalConfig");
     if (provider === undefined) return undefined;
     if (typeof provider.get !== "function") {
@@ -1028,13 +1068,13 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Resolve the durable and process-local state used by a mutation. */
-  prepareMutation(agent) {
+  prepareMutation(agent: Agent): [GoalProjection | null, GoalRuntimeState] {
     this.assertLive(agent);
     return [this.state(agent.session), this.runtimeState(agent.session)];
   }
 
   /** Reject stale or missing current-state refs. */
-  expectCurrent(state, ref) {
+  expectCurrent(state: GoalProjection | null, ref: GoalRef): GoalProjection {
     if (state === null) {
       throw new GoalError("no current goal", "GOAL_NOT_FOUND");
     }
@@ -1049,7 +1089,7 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Enforce exact live-agent identity rather than trusting a matching id. */
-  assertLive(agent) {
+  assertLive(agent: Agent) {
     if (this.ctx.agents.get(agent.id) !== agent) {
       throw new GoalError(
         `agent "${agent.id}" is not live in this registry`,
@@ -1059,7 +1099,7 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Read the current durable projection maintained by the registry. */
-  state(session) {
+  state(session: Session): GoalProjection | null {
     const state = this.goalProjectionHandle.stateOf(session);
     if (state === undefined) {
       throw new Error("goal projection is not registered");
@@ -1069,7 +1109,7 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Return the process-local activation state, initially disarmed. */
-  runtimeState(session) {
+  runtimeState(session: Session): GoalRuntimeState {
     let runtime = this.runtimeStates.get(session);
     if (runtime !== undefined) return runtime;
     runtime = { activation: "disarmed", pendingActivation: undefined };
@@ -1078,7 +1118,7 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Publish one process-local activation edge when it actually changes. */
-  setActivation(session, activation) {
+  setActivation(session: Session, activation: GoalActivation) {
     const runtime = this.runtimeState(session);
     if (runtime.activation === activation) return;
     runtime.activation = activation;
@@ -1101,7 +1141,7 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Build a new revision with one replacement phase. */
-  withPhase(current, phase) {
+  withPhase(current: GoalSnapshot, phase: GoalPhase): GoalSnapshot {
     return {
       id: current.id,
       revision: current.revision + 1,
@@ -1112,7 +1152,7 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Shared validated phase transition. */
-  transition(agent, ref, operation, allowed, phase, activation) {
+  transition(agent: Agent, ref: GoalRef, operation: GoalSnapshotChangeMeta["operation"], allowed: readonly GoalPhase[], phase: GoalPhase, activation: GoalActivation): GoalView {
     const [state, runtime] = this.prepareMutation(agent);
     const currentState = this.expectCurrent(state, ref);
     const current = currentState.goal;
@@ -1130,7 +1170,7 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Render a stable invalid-transition error. */
-  transitionError(current, operation, allowed) {
+  transitionError(current: GoalSnapshot, operation: GoalOperation, allowed: readonly GoalPhase[]) {
     return new GoalError(
       `cannot ${operation} goal "${current.id}" from phase "${current.phase}"; expected ${allowed.join(" or ")}`,
       "GOAL_INVALID_TRANSITION",
@@ -1138,7 +1178,7 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Commit a mutation that retains the current goal's derived counters/times. */
-  commitCurrent(agent, state, runtime, operation, goal, activation) {
+  commitCurrent(agent: Agent, state: GoalProjection, runtime: GoalRuntimeState, operation: GoalSnapshotChangeMeta["operation"], goal: GoalSnapshot, activation: GoalActivation): GoalView {
     return this.commitSnapshot(
       agent,
       runtime,
@@ -1152,22 +1192,22 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Clamp a current goal's next timestamp across backward wall-clock movement. */
-  nextMutationTime(state) {
+  nextMutationTime(state: GoalProjection): number {
     return Math.max(Date.now(), state.updatedAt);
   }
 
   /** Build and commit one full-snapshot mutation. */
   commitSnapshot(
-    agent,
-    runtime,
-    operation,
-    goal,
-    roundsStarted,
-    createdAt,
-    updatedAt,
-    activation,
-  ) {
-    const change = {
+    agent: Agent,
+    runtime: GoalRuntimeState,
+    operation: GoalSnapshotChangeMeta["operation"],
+    goal: GoalSnapshot,
+    roundsStarted: number,
+    createdAt: number,
+    updatedAt: number,
+    activation: GoalActivation,
+  ): GoalView {
+    const change: GoalSnapshotChangeMeta = {
       kind: "goal/change",
       version: 1,
       operation,
@@ -1187,7 +1227,7 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Commit one mutation into the goal log and live event stream. */
-  commit(agent, runtime, change, activation) {
+  commit(agent: Agent, runtime: GoalRuntimeState, change: GoalChangeMeta, activation: GoalActivation) {
     const ref = goalChangeRef(change);
     runtime.pendingActivation = {
       offset: agent.session.seq,
@@ -1211,7 +1251,7 @@ export class GoalService extends TypertRemoteService {
   }
 
   /** Build a detached current view. */
-  view(state, runtime) {
+  view(state: GoalProjection | null, runtime: GoalRuntimeState): GoalView | undefined {
     if (state === null) return undefined;
     return {
       ...state.goal,
@@ -1230,7 +1270,7 @@ export class GoalService extends TypertRemoteService {
    *   and optional round cap.
    * @returns {{ref: {id: string, revision: number}}} the created Goal identity.
    */
-  remoteExportCreate(agent, request) {
+  remoteExportCreate(agent: Agent, request: CreateGoalRequest): CreateGoalResult {
     const view = this.create(agent, request);
     return { ref: { id: view.id, revision: view.revision } };
   }
@@ -1245,17 +1285,17 @@ export class GoalService extends TypertRemoteService {
  * @param {string} method - public instance method name.
  * @param {string} exportName - wire method name.
  */
-function markRemoteMethod(prototype, method, exportName = method) {
+function markRemoteMethod(prototype: GoalService, method: "get" | "edit" | "pause" | "resume" | "complete" | "clear" | "remoteExportCreate", exportName: string = method) {
   const decorate = Remote(exportName);
-  const receiver = Object.create(prototype);
-  decorate(prototype[method], {
+  const receiver: GoalService = Object.create(prototype);
+  decorate(prototype[method] as (...args: unknown[]) => unknown, {
     private: false,
     static: false,
     name: method,
-    addInitializer(initializer) {
+    addInitializer(initializer: (this: GoalService) => void) {
       initializer.call(receiver);
     },
-  });
+  } as ClassMethodDecoratorContext<GoalService, (...args: unknown[]) => unknown>);
 }
 
 markRemoteMethod(GoalService.prototype, "get");

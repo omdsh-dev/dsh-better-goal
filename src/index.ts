@@ -1,3 +1,27 @@
+import type { Context, Fiber } from '@deepseek-ai/cordis'
+import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { GoalConfig } from './config.js'
+import type { GoalConfigStatus } from './host.js'
+import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
+import type { GoalHistoryState } from './history.js'
+import type NativeGoalService from '@deepseek-ai/dsh-goal'
+
+type NativeStack = {
+  service: typeof NativeGoalService
+  driver: typeof import('@deepseek-ai/dsh-goal-round-driver')
+  tool: typeof import('@deepseek-ai/dsh-tool-goal')
+  command: typeof import('@deepseek-ai/dsh-command-goal')
+}
+interface AgentControls {
+  agent: Agent
+  actor: Context
+  mode: GoalConfig['roundLimitMode'] | undefined
+  commandDispose?: () => void
+  promptDispose?: () => void
+  restrictDispose?: () => void
+  goalDispose?: () => void
+}
+
 import { Config, readConfig as snapshotConfig, UNLIMITED_ROUNDS } from './config.js'
 import { GoalService, goalProjectionDefinition } from './service.js'
 import { createGoalHistoryDefinition } from './history.js'
@@ -10,7 +34,7 @@ export { Config }
 export const name = 'dsh-better-goal'
 export const inject = ['agents', 'sessions', 'sessionProjections', 'tools', 'systemPrompt']
 
-export async function apply(ctx, config = {}) {
+export async function apply(ctx: Context, config: unknown = {}) {
   const loadedConfig = Object.freeze(snapshotConfig(config))
   const enhanced = loadedConfig.implementation === 'enhanced'
   // Never compete with a host-owned goal domain or continuation driver.
@@ -22,7 +46,7 @@ export async function apply(ctx, config = {}) {
       throw new Error(`dsh-better-goal requires native row "${entry.id}" to remain disabled`)
     }
   }
-  let native
+  let native: NativeStack | undefined
   if (!enhanced) {
     const loader = ctx.get('loader')
     if (typeof loader?.import !== 'function') {
@@ -35,7 +59,8 @@ export async function apply(ctx, config = {}) {
     ].map((name) => loader.import(`@deepseek-ai/${name}`)))
     native = { service: modules[0].GoalService, driver: modules[1], tool: modules[2], command: modules[3] }
   }
-  await ctx.sessionProjections.register(createGoalHistoryDefinition(goalProjectionDefinition))
+  // Host and plugin resolve different Zod declaration versions for the same schema API.
+  await ctx.sessionProjections.register(createGoalHistoryDefinition(goalProjectionDefinition) as unknown as ProjectionDefinition<'better-goal-history', GoalHistoryState> & { wire: NonNullable<ProjectionDefinition<'better-goal-history', GoalHistoryState>['wire']> })
   const current = () => snapshotConfig(config)
   const readConfig = () => ({
     ...current(),
@@ -43,11 +68,11 @@ export async function apply(ctx, config = {}) {
     nativeDefaultMaxGoalRounds: loadedConfig.nativeDefaultMaxGoalRounds,
     nativeBlockedAfterConsecutiveRounds: loadedConfig.nativeBlockedAfterConsecutiveRounds,
   })
-  const status = () => ({
+  const status = (): GoalConfigStatus => ({
     activeConfig: readConfig(),
     savedConfig: current(),
     loadedConfig,
-    requiresReload: ['implementation', 'nativeDefaultMaxGoalRounds', 'nativeBlockedAfterConsecutiveRounds']
+    requiresReload: (['implementation', 'nativeDefaultMaxGoalRounds', 'nativeBlockedAfterConsecutiveRounds'] as const)
       .some((key) => current()[key] !== loadedConfig[key]),
     runtime: { implementation: loadedConfig.implementation, owner: name },
     capabilities: {
@@ -65,15 +90,15 @@ export async function apply(ctx, config = {}) {
   mountSettings(ctx, status)
   if (native) {
     ctx.inject(['goals'], (runtime) => {
-      const controls = new Map()
-      function setup(agent) {
+      const controls = new Map<Agent, Fiber[]>()
+      function setup(agent: Agent): undefined {
         if (controls.has(agent)) return
         controls.set(agent, [
-          agent.ctx.plugin(native.tool, { blockedAfterConsecutiveRounds: loadedConfig.nativeBlockedAfterConsecutiveRounds }),
-          agent.ctx.plugin(native.command),
+          agent.ctx.plugin(native!.tool, { blockedAfterConsecutiveRounds: loadedConfig.nativeBlockedAfterConsecutiveRounds }),
+          agent.ctx.plugin(native!.command),
         ])
       }
-      runtime.on('agent/created', ({ agent }) => setup(agent))
+      runtime.on('agent/created', ({ agent }): undefined => setup(agent))
       runtime.on('agent/disposed', async ({ agent }) => {
         const fibers = controls.get(agent) ?? []
         controls.delete(agent)
@@ -92,11 +117,11 @@ export async function apply(ctx, config = {}) {
   }
 }
 
-function mountBetterRuntime(ctx, readConfig) {
+function mountBetterRuntime(ctx: Context, readConfig: () => GoalConfig) {
   ctx.inject(['goals'], (runtime) => {
-    const states = new Map()
-    function refresh(state) {
-      const tools = state.actor.get('tools')
+    const states = new Map<Agent, AgentControls>()
+    function refresh(state: AgentControls) {
+      const tools = state.actor.get('tools')!
       // Preset generations can change before the first turn. Recheck inherited
       // tools instead of retaining an ask tool from a previous generation.
       const visibleLegacy = LEGACY_GOAL_TOOLS.filter((name) => tools.get(name, state.agent))
@@ -112,10 +137,10 @@ function mountBetterRuntime(ctx, readConfig) {
         state.mode = settings.roundLimitMode
       }
     }
-    function setup(agent) {
+    function setup(agent: Agent) {
       if (states.has(agent)) return states.get(agent)
       const actor = agent.ctx
-      const state = { agent, actor, mode: undefined }
+      const state: AgentControls = { agent, actor, mode: undefined }
       state.commandDispose = registerGoalCommand(actor, readConfig)
       state.promptDispose = actor.systemPrompt.section({
         name: 'tool:goal',
@@ -127,13 +152,13 @@ function mountBetterRuntime(ctx, readConfig) {
       refresh(state)
       return state
     }
-    function cleanup(state) {
+    function cleanup(state: AgentControls) {
       state.goalDispose?.()
       state.commandDispose?.()
       state.restrictDispose?.()
       state.promptDispose?.()
     }
-    runtime.on('agent/created', ({ agent }) => { setup(agent) })
+    runtime.on('agent/created', ({ agent }): undefined => { setup(agent) })
     runtime.on('agent/disposed', ({ agent }) => {
       const state = states.get(agent)
       if (state) cleanup(state)

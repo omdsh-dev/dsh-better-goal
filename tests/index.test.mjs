@@ -9,10 +9,10 @@ import { SessionProjectionRegistry } from '@deepseek-ai/dsh-session-projection'
 import { SystemPrompt } from '@deepseek-ai/dsh-system-prompt'
 import { ToolRuntime } from '@deepseek-ai/dsh-tools'
 import { CommandRuntime } from '@deepseek-ai/dsh-commands'
-import { apply, inject } from '../src/index.js'
-import { GoalService } from '../src/service.js'
-import { DEFAULTS, UNLIMITED_ROUNDS } from '../src/config.js'
-import { handleConfig, CONFIG_PATH } from '../src/settings.js'
+import { apply, inject } from '../lib/index.js'
+import { GoalService } from '../lib/service.js'
+import { DEFAULTS, UNLIMITED_ROUNDS } from '../lib/config.js'
+import { handleConfig, CONFIG_PATH } from '../lib/settings.js'
 
 const drain = async () => { for (let i = 0; i < 8; i++) await new Promise(setImmediate) }
 const hostRoot = process.env.DSH_PACKAGE_ROOT
@@ -270,6 +270,7 @@ nativeTest('isolated real profile switches both backends and preserves the same 
     else process.env.DSH_TELEMETRY_DISABLED = previousTelemetry
   })
   const require = createRequire(pathToFileURL(hostRoot + '/package.json'))
+  const hostPeerRoot = dirname(dirname(require.resolve('@deepseek-ai/dsh-web-app/package.json')))
   const A = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-app-boot')))
   const profile = A.resolveProfileDir('native-test', home)
   const { PROFILE_TEMPLATES } = await import(pathToFileURL(require.resolve('@deepseek-ai/dsh-official-bundles')))
@@ -278,8 +279,8 @@ nativeTest('isolated real profile switches both backends and preserves the same 
   const plugin = join(modules, 'dsh-better-goal')
   await mkdir(plugin, { recursive: true })
   const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-  for (const name of ['package.json', 'src', 'cordis.patch.yml']) await cp(join(root, name), join(plugin, name), { recursive: true })
-  await symlink(dirname(hostRoot), join(modules, '@deepseek-ai'))
+  for (const name of ['package.json', 'lib', 'cordis.patch.yml']) await cp(join(root, name), join(plugin, name), { recursive: true })
+  await symlink(hostPeerRoot, join(modules, '@deepseek-ai'))
   const localRequire = createRequire(import.meta.url)
   await symlink(dirname(localRequire.resolve('zod/package.json')), join(modules, 'zod'))
   await symlink(dirname(localRequire.resolve('react/package.json')), join(modules, 'react'))
@@ -288,8 +289,13 @@ nativeTest('isolated real profile switches both backends and preserves the same 
   manifest.dependencies['dsh-better-goal'] = 'file:' + plugin
   await writeFile(manifestPath, JSON.stringify(manifest))
   const patchPath = join(profile, 'cordis.patch.yml')
+  const overlay = A.loadOverlayPatches('native-test', join(hostPeerRoot, 'dsh-web-app/presets/standard.patch.yml'))
+  // 0.2.3-alpha.2's standard preset adds tool-cordis, which needs cordisInspect; the headless harness has no such service.
+  for (const entry of overlay) for (const row of entry.insert ?? []) {
+    if (row.id === 'preset-standard') row.config.plugins = row.config.plugins.filter((plugin) => plugin.id !== 'tool-cordis')
+  }
   const patch = [
-    ...A.loadOverlayPatches('native-test', join(dirname(hostRoot), 'dsh-web-app/presets/standard.patch.yml')),
+    ...overlay,
     { id: 'headless-startup', disabled: true }, { id: 'headless-runner', disabled: true },
     { id: 'sandbox-policy', inject: [], config: { mode: 'workspace-write', workspaceRoot: home, additionalWritableRoots: [] } },
     { id: 'credentials', disabled: false, config: { watch: false } },

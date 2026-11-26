@@ -1,14 +1,18 @@
+import type { Context } from '@deepseek-ai/cordis'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { GoalConfigStatus } from './host.js'
+
 /** Configure the row presentation and expose facts through the host trust fence. */
 export const CONFIG_PATH = '/better-goal/api/config'
 
-function sendJson(res, status, payload) {
+function sendJson(res: ServerResponse, status: number, payload: unknown) {
   res.statusCode = status
   res.setHeader('content-type', 'application/json; charset=utf-8')
   res.setHeader('cache-control', 'no-store')
   res.end(JSON.stringify(payload))
 }
 
-export function handleConfig(ctx, status, req, res) {
+export function handleConfig(ctx: Context, status: () => GoalConfigStatus, req: IncomingMessage, res: ServerResponse) {
   const connection = ctx.get('connection')
   if (typeof connection?.requestRejection !== 'function') {
     sendJson(res, 503, { code: 'CONFIG_UNAVAILABLE', message: 'Host connection trust fence is unavailable' })
@@ -27,7 +31,7 @@ export function handleConfig(ctx, status, req, res) {
   sendJson(res, 200, status())
 }
 
-export function mountSettings(ctx, status) {
+export function mountSettings(ctx: Context, status: () => GoalConfigStatus) {
   ctx.inject(['settings'], (inner) => {
     const dispose = inner.settings.configure({ auto: false }, ctx.fiber)
     inner.effect(() => dispose, 'better-goal: settings page')

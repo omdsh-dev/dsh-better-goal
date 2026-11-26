@@ -1,11 +1,17 @@
+import type { Context } from '@deepseek-ai/cordis'
+import type { CommandDefinitionId, CommandInvocation, CommandResult } from '@deepseek-ai/dsh-commands'
+import type { GoalView } from '@deepseek-ai/dsh-goal'
+import type { GoalConfig } from './config.js'
+
+interface GoalCommand { action: string; objective?: string; reason?: string }
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { executeGoalAction, goalRef } from './tool.js'
 import { isUnlimitedCap, resolveRoundLimit } from './config.js'
 
-export function parseGoalCommand(rawInput) {
+export function parseGoalCommand(rawInput: string): GoalCommand {
   const input = rawInput.trim()
   if (!input) return { action: 'get' }
-  const controls = { on: 'resume', off: 'pause', get: 'get', pause: 'pause', resume: 'resume', clear: 'clear', complete: 'complete' }
+  const controls: Record<string, string> = { on: 'resume', off: 'pause', get: 'get', pause: 'pause', resume: 'resume', clear: 'clear', complete: 'complete' }
   if (controls[input.toLowerCase()]) return { action: controls[input.toLowerCase()] }
   const match = /^(edit|create|fail|set)\s+([\s\S]+)$/iu.exec(input)
   if (match) return match[1].toLowerCase() === 'fail'
@@ -15,7 +21,7 @@ export function parseGoalCommand(rawInput) {
   return { action: 'create', objective: input }
 }
 
-function renderGoal(goal) {
+function renderGoal(goal: GoalView) {
   return [
     `Goal: ${goal.objective}`,
     `Status: ${goal.phase}${goal.phase === 'active' && goal.activation === 'disarmed' ? ' (waiting for explicit resume)' : ''}`,
@@ -24,9 +30,9 @@ function renderGoal(goal) {
   ].join('\n')
 }
 
-export function executeGoalCommand(ctx, invocation, readConfig) {
+export function executeGoalCommand(ctx: Context, invocation: CommandInvocation, readConfig: () => GoalConfig): CommandResult {
   try {
-    const goals = ctx.get('goals')
+    const goals = ctx.get('goals')!
     const args = parseGoalCommand(invocation.rawInput)
     const current = goals.get(invocation.agent)
     const attachments = invocation.attachments ?? []
@@ -45,17 +51,17 @@ export function executeGoalCommand(ctx, invocation, readConfig) {
 
     let goal
     if (args.action === 'edit') {
-      goal = goals.edit(invocation.agent, goalRef(current), {
+      goal = goals.edit(invocation.agent, goalRef(current!), {
         objective: args.objective,
-        maxGoalRounds: resolveRoundLimit(readConfig(), undefined, current.maxGoalRounds),
+        maxGoalRounds: resolveRoundLimit(readConfig(), undefined, current!.maxGoalRounds),
       })
     } else if (args.action === 'pause') {
-      goal = goals.pause(invocation.agent, goalRef(current))
+      goal = goals.pause(invocation.agent, goalRef(current!))
     } else if (args.action === 'fail') {
       // Human-only blocker: the model pauses instead, so this keeps a durable reason.
-      goal = goals.block(invocation.agent, goalRef(current), { code: 'user-reported', message: args.reason.trim() })
+      goal = goals.block(invocation.agent, goalRef(current!), { code: 'user-reported', message: args.reason!.trim() })
     } else if (args.action === 'clear') {
-      goals.clear(invocation.agent, goalRef(current))
+      goals.clear(invocation.agent, goalRef(current!))
       return { kind: 'success', text: 'Goal cleared.' }
     } else {
       goal = executeGoalAction(ctx, invocation.agent, args, readConfig()).goal
@@ -72,11 +78,11 @@ export function executeGoalCommand(ctx, invocation, readConfig) {
   }
 }
 
-export function registerGoalCommand(ctx, readConfig) {
+export function registerGoalCommand(ctx: Context, readConfig: () => GoalConfig) {
   const commands = ctx.get('commands')
   if (!commands) return () => {}
   return commands.register({
-    definitionId: 'dsh-better-goal',
+    definitionId: 'dsh-better-goal' as CommandDefinitionId,
     name: 'goal',
     description: 'View or control the persistent goal',
     input: { hint: '[<objective>|edit <objective>|pause|resume|clear|set <objective>|create <objective>|fail <reason>|complete]', attachments: true },

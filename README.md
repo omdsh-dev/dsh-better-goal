@@ -7,7 +7,7 @@
 <p align="center">
   <a href="https://www.npmjs.com/package/dsh-better-goal"><img src="https://img.shields.io/npm/v/dsh-better-goal.svg" alt="npm 版本"></a>
   <a href="LICENSE"><img alt="Apache-2.0" src="https://img.shields.io/github/license/omdsh-dev/dsh-better-goal?color=blue"></a>
-  <a href="package.json"><img alt="DSH 0.2.2-rc.3" src="https://img.shields.io/badge/DSH-0.2.2--rc.3-4B32C3"></a>
+  <a href="package.json"><img alt="DSH 0.2.3-alpha.2" src="https://img.shields.io/badge/DSH-0.2.3--alpha.2-4B32C3"></a>
 </p>
 
 <p align="center">
@@ -45,7 +45,7 @@
 ## 快速开始
 
 ```sh
-dsh plugin --profile <profile> add dsh-better-goal@0.4.5
+dsh plugin --profile <profile> add dsh-better-goal@0.4.6-alpha.1
 ```
 
 安装、升级或换包后重启对应 profile；只刷新网页不够。
