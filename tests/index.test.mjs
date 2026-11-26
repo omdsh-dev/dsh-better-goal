@@ -31,7 +31,6 @@ async function harness(t, config = {}, loader) {
     turnBoundaryOf: (session) => boundaryReader(session),
     withoutInitiator: (fn) => Promise.resolve().then(fn),
   })
-  ctx.provide('connection', { requestRejection: () => undefined })
   ctx.provide('webServer', { register(route) { routes.set(route.path, route); return () => routes.delete(route.path) } })
   if (loader) ctx.provide('loader', loader)
   await ctx.plugin(SessionStore)
@@ -131,28 +130,36 @@ test('owning row volatile commits refresh goal schema without touching question 
   assert.ok('max_goal_rounds' in h.ctx.tools.get('goal', agent).parameters.properties)
 })
 
-test('configuration endpoint uses host fence, GET only, current snapshots and no cache', async (t) => {
+test('configuration endpoint keeps its loopback/Origin fence, GET only, current snapshots and no cache', async (t) => {
   const h = await harness(t)
-  const handler = h.routes.get(CONFIG_PATH).handler
+  const route = h.routes.get(CONFIG_PATH)
+  assert.equal(route.auth, 'anonymous')
+  const handler = route.handler
+  const trusted = (headers = {}) => ({ method: 'GET', headers: { host: '127.0.0.1:3080', ...headers } })
   const res = response()
-  handler({ method: 'GET' }, res)
+  handler(trusted(), res)
   assert.equal(res.statusCode, 200)
   assert.equal(res.headers['cache-control'], 'no-store')
   assert.equal(JSON.parse(res.body).capabilities.questionTimeout, false)
+  const sameOrigin = response()
+  handler(trusted({ origin: 'http://127.0.0.1:3080' }), sameOrigin)
+  assert.equal(sameOrigin.statusCode, 200)
   const post = response()
-  handler({ method: 'POST' }, post)
+  handler({ ...trusted(), method: 'POST' }, post)
   assert.equal(post.statusCode, 405)
   assert.equal(post.headers.allow, 'GET')
-  let reads = 0
-  for (const rejection of [401, 403]) {
+  for (const headers of [
+    {},
+    { host: 'example.com' },
+    { host: '127.0.0.1:3080', origin: 'http://evil.example' },
+    { host: '127.0.0.1:3080', 'sec-fetch-site': 'cross-site' },
+  ]) {
+    let reads = 0
     const denied = response()
-    handleConfig({ get: () => ({ requestRejection: () => rejection }) }, () => { reads++; return {} }, { method: 'GET' }, denied)
-    assert.equal(denied.statusCode, rejection)
+    handleConfig({}, () => { reads++; return {} }, { method: 'GET', headers }, denied)
+    assert.equal(denied.statusCode, 403)
+    assert.equal(reads, 0)
   }
-  const unavailable = response()
-  handleConfig({ get: () => undefined }, () => { reads++; return {} }, { method: 'GET' }, unavailable)
-  assert.equal(unavailable.statusCode, 503)
-  assert.equal(reads, 0)
 })
 
 test('ownership conflicts and unavailable native imports fail before mounting anything', async () => {

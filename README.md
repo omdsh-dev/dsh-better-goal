@@ -45,7 +45,7 @@
 ## 快速开始
 
 ```sh
-dsh plugin --profile <profile> add dsh-better-goal@0.4.6-alpha.1
+dsh plugin --profile <profile> add dsh-better-goal@0.4.6-alpha.2
 ```
 
 安装、升级或换包后重启对应 profile；只刷新网页不够。
