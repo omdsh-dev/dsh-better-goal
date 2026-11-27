@@ -4,7 +4,7 @@
 
 ## 状态与兼容性
 
-- 当前源码版本：`0.4.6-alpha.2`。
+- 当前源码版本：`0.4.7-alpha.1`。
 - 支持 DSH `>=0.2.3-alpha.2 <0.3.0`（验收基线 `0.2.3-alpha.2`）；`package.json` 的 engines 与 DSH peers 使用同一范围。
 - Node.js：`^24.22.3 || >=26.13.1`；Cordis `~4.2.0-alpha.1`、Schemastery `~3.20.0-alpha.1`。
 - 宿主与浏览器源码使用严格 TypeScript；宿主构建为 `lib/` 下的 ESM、`.d.ts` 与 source map，浏览器由 esbuild 打包为宿主 ModuleLoader closure。
@@ -194,7 +194,7 @@ Apollo 在 `package.json` 中把 `dsh-better-goal` 声明为精确 npm 依赖 `0
 ### npm 安装
 
 ```sh
-dsh plugin --profile <profile> add dsh-better-goal@0.4.6-alpha.2
+dsh plugin --profile <profile> add dsh-better-goal@0.4.7-alpha.1
 ```
 
 npm 安装后，目标设置出现在 **Plugins → dsh-better-goal → dsh-better-goal 行**。GitHub main 仍保留为源码安装选项。
@@ -211,7 +211,7 @@ dsh plugin --profile <profile> add link:/absolute/path/to/dsh-better-goal
 
 链接后要重启 profile；运行时 `roundLimitMode` / `roundLimit` 仍然支持保存后热更新，`implementation` 与 `native*` 字段保存后需再次重载生效。
 
-Apollo 本地开发时，先在其根目录执行 `npm install`。`dsh plugin add link:` 只链接 Apollo 本身，不代装依赖；Apollo 的依赖是精确 npm 版本 `dsh-better-goal@0.4.6-alpha.2`，本地联调可临时改成 `file:../dsh-better-goal`，但不要提交该改动。GitHub 源码安装同样从 registry 解析这个精确版本。
+Apollo 本地开发时，先在其根目录执行 `npm install`。`dsh plugin add link:` 只链接 Apollo 本身，不代装依赖；Apollo 的依赖是精确 npm 版本 `dsh-better-goal@0.4.7-alpha.1`，本地联调可临时改成 `file:../dsh-better-goal`，但不要提交该改动。GitHub 源码安装同样从 registry 解析这个精确版本。
 
 ## 测试与宿主冒烟
 
