@@ -4,9 +4,9 @@
 
 ## 状态与兼容性
 
-- 当前源码版本：`0.4.7-alpha.1`。
-- 支持 DSH `>=0.2.3-alpha.2 <0.3.0`（验收基线 `0.2.3-alpha.2`）；`package.json` 的 engines 与 DSH peers 使用同一范围。
-- Node.js：`^24.22.3 || >=26.13.1`；Cordis `~4.2.0-alpha.1`、Schemastery `~3.20.0-alpha.1`。
+- 当前源码版本：`0.4.8-alpha.1`。
+- 支持 DSH `>=0.2.3-alpha.3 <0.3.0`（验收基线 `0.2.3-alpha.3`）；`package.json` 的 engines 与 DSH peers 使用同一范围。
+- Node.js：`^24.22.3 || >=26.13.1`；Cordis `~4.2.0-alpha.2`、Schemastery `~3.20.0-alpha.2`。
 - 宿主与浏览器源码使用严格 TypeScript；宿主构建为 `lib/` 下的 ESM、`.d.ts` 与 source map，浏览器由 esbuild 打包为宿主 ModuleLoader closure。
 - 在本仓库运行 `npm run typecheck` / `build` / `test`；`pretest` 自动构建，测试读取生成的 `lib/`，`prepare` 支持源码安装。冒烟前先构建。
 
@@ -88,7 +88,7 @@
 
 ## 原生 Goal 对比的核验边界
 
-用户 README 的对比以本项目验证基线 DSH `0.2.3-alpha.2` 的默认装配为准，核对了该版本的 `dsh-tool-goal`、`dsh-goal-round-driver`、`dsh-goal`、`dsh-tool-ask-user` 发布代码及 standard 预设。公开规则见[原生 Goal 工具说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/goal/tool-goal/README.md)；该链接跟随上游演进，不代替已验证版本。
+用户 README 的对比以本项目验证基线 DSH `0.2.3-alpha.3` 的默认装配为准，核对了该版本的 `dsh-tool-goal`、`dsh-goal-round-driver`、`dsh-goal`、`dsh-tool-ask-user` 发布代码及 standard 预设。公开规则见[原生 Goal 工具说明](https://github.com/deepseek-ai/deepseek-harness/blob/master/packages/goal/tool-goal/README.md)；该链接跟随上游演进，不代替已验证版本。
 
 - 原生并非没有停止路径：模型可 `complete` 或在满足门槛后 `blocked`，用户还可暂停、清除；不能把它描述成绝对无法终止或必然无限运行。
 - 原生自主目标轮次不具备 direct-human authority，不能主动 `pause`；`blocked` 默认在 `roundsStarted < 3` 时被拒绝。文档要求同一阻塞持续多个轮次，代码门槛实际比较累计目标轮数，不证明每轮都是同一阻塞。README 因此只说“默认至少经过 3 个目标轮次”。
@@ -194,7 +194,7 @@ Apollo 在 `package.json` 中把 `dsh-better-goal` 声明为精确 npm 依赖 `0
 ### npm 安装
 
 ```sh
-dsh plugin --profile <profile> add dsh-better-goal@0.4.7-alpha.1
+dsh plugin --profile <profile> add dsh-better-goal@0.4.8-alpha.1
 ```
 
 npm 安装后，目标设置出现在 **Plugins → dsh-better-goal → dsh-better-goal 行**。GitHub main 仍保留为源码安装选项。
@@ -211,7 +211,7 @@ dsh plugin --profile <profile> add link:/absolute/path/to/dsh-better-goal
 
 链接后要重启 profile；运行时 `roundLimitMode` / `roundLimit` 仍然支持保存后热更新，`implementation` 与 `native*` 字段保存后需再次重载生效。
 
-Apollo 本地开发时，先在其根目录执行 `npm install`。`dsh plugin add link:` 只链接 Apollo 本身，不代装依赖；Apollo 的依赖是精确 npm 版本 `dsh-better-goal@0.4.7-alpha.1`，本地联调可临时改成 `file:../dsh-better-goal`，但不要提交该改动。GitHub 源码安装同样从 registry 解析这个精确版本。
+Apollo 本地开发时，先在其根目录执行 `npm install`。`dsh plugin add link:` 只链接 Apollo 本身，不代装依赖；Apollo 的依赖是精确 npm 版本 `dsh-better-goal@0.4.8-alpha.1`，本地联调可临时改成 `file:../dsh-better-goal`，但不要提交该改动。GitHub 源码安装同样从 registry 解析这个精确版本。
 
 ## 测试与宿主冒烟
 
